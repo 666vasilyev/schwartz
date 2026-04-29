@@ -1,5 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.presentation.api.dependencies import require_collector_auth
 from app.presentation.schemas.collector import (
     CollectRequest,
     CollectResponse,
@@ -15,7 +16,12 @@ from app.use_case.collect import post_rss as collect_post_rss
 router = APIRouter(tags=["Collect"])
 
 
-@router.post("/collect", response_model=CollectResponse, summary="Собрать посты (только VK → JSON)")
+@router.post(
+    "/collect",
+    response_model=CollectResponse,
+    summary="Собрать посты (только VK → JSON)",
+    dependencies=[Depends(require_collector_auth)],
+)
 async def collect(body: CollectRequest) -> CollectResponse:
     return await collect_post.execute(body)
 
@@ -24,6 +30,7 @@ async def collect(body: CollectRequest) -> CollectResponse:
     "/collect/public",
     response_model=PublicCollectResponse,
     summary="Стена паблика по ссылке (только VK → JSON для сервера)",
+    dependencies=[Depends(require_collector_auth)],
 )
 async def collect_public(body: PublicCollectRequest) -> PublicCollectResponse:
     return await collect_post_public.execute(body)
@@ -33,6 +40,7 @@ async def collect_public(body: PublicCollectRequest) -> PublicCollectResponse:
     "/collect/rss",
     response_model=RssCollectResponse,
     summary="RSS/Atom лента по URL → JSON для оркестрации",
+    dependencies=[Depends(require_collector_auth)],
 )
 async def collect_rss(body: RssCollectRequest) -> RssCollectResponse:
     return await collect_post_rss.execute(body)

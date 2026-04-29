@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import httpx
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +20,14 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _collector_headers() -> Mapping[str, str]:
+    settings = get_settings()
+    secret = (settings.collector_shared_secret or "").strip()
+    if not secret:
+        return {}
+    return {"Authorization": f"Bearer {secret}"}
+
+
 async def _collect_vk_public(
     db: AsyncSession,
     *,
@@ -34,9 +44,10 @@ async def _collect_vk_public(
         "use_mock": use_mock,
     }
 
+    hdr = dict(_collector_headers())
     async with httpx.AsyncClient(timeout=180) as client:
         try:
-            r = await client.post(client_url, json=payload)
+            r = await client.post(client_url, json=payload, headers=hdr)
         except httpx.RequestError as exc:
             logger.error("collect_client_unreachable", url=client_url, error=str(exc))
             raise HTTPException(
@@ -113,9 +124,10 @@ async def _collect_rss(
         "use_mock": use_mock,
     }
 
+    hdr = dict(_collector_headers())
     async with httpx.AsyncClient(timeout=180) as client:
         try:
-            r = await client.post(client_url, json=payload)
+            r = await client.post(client_url, json=payload, headers=hdr)
         except httpx.RequestError as exc:
             logger.error("collect_rss_unreachable", url=client_url, error=str(exc))
             raise HTTPException(

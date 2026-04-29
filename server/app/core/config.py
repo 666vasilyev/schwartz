@@ -35,6 +35,8 @@ class Settings(BaseSettings):
         default="http://127.0.0.1:8080",
         description="База URL клиента-сборщика, например http://client:8080",
     )
+    # Тот же секрет, что у collector; пустой — без заголовка Authorization (локальная разработка)
+    collector_shared_secret: str = ""
 
     @property
     def is_production(self) -> bool:

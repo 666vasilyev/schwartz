@@ -29,6 +29,8 @@ class Settings(BaseSettings):
 
     app_env: str = "development"
     log_level: str = "INFO"
+    # Совпадает с server.collector_shared_secret; пустой — не требовать Bearer к POST /collect*
+    collector_shared_secret: str = ""
 
     @property
     def is_production(self) -> bool:
