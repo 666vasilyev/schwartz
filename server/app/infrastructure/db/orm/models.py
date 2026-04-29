@@ -176,3 +176,20 @@ class PostComment(Base):
     )
 
     post: Mapped["Post"] = relationship(back_populates="comments")
+
+
+class VkAccessToken(Base):
+    """User access token VK: ротация по полю usage (меньше — приоритетнее)."""
+
+    __tablename__ = "vk_access_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    usage: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, index=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )

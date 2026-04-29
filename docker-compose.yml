@@ -30,5 +30,10 @@ services:
     ports:
       - "8080:8080"
     env_file: .env
+    environment:
+      POSTGRES_HOST: db
     depends_on:
-      - server
+      db:
+        condition: service_healthy
+      server:
+        condition: service_started

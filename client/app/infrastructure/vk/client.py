@@ -4,13 +4,13 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import get_settings
+from app.infrastructure.repositories.vk_access_token import acquire_vk_access_token
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 settings = get_settings()
 
 _VK_BASE = settings.vk_api_base_url
-_TOKEN = settings.vk_api_token
 _VERSION = settings.vk_api_version
 
 
@@ -20,10 +20,18 @@ class VKApiError(Exception):
         super().__init__(f"VK API error {code}: {message}")
 
 
+class VkNoAccessTokenConfigured(Exception):
+    pass
+
+
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
 async def vk_call(method: str, **params: Any) -> dict[str, Any]:
+    token = await acquire_vk_access_token()
+    if not token:
+        raise VkNoAccessTokenConfigured("Нет активного VK токена")
+
     payload = {
-        "access_token": _TOKEN,
+        "access_token": token,
         "v": _VERSION,
         **params,
     }

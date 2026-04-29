@@ -10,6 +10,9 @@ from app.application.services.collect.vk_post_enrichment import (
     enrich_wall_posts_with_comments,
 )
 from app.core.config import get_settings
+from app.infrastructure.repositories.vk_access_token import (
+    vk_token_sources_configured_async,
+)
 from app.infrastructure.vk import client as vk_client
 from app.infrastructure.vk.vk_public_url import extract_screen_or_id_token
 from app.utils.logger import get_logger
@@ -72,7 +75,7 @@ async def collect_public_posts_for_ingest(
     limit: int = 20,
     use_mock: bool = False,
 ) -> list[dict[str, Any]]:
-    if use_mock or not (settings.vk_api_token and settings.vk_api_token.strip()):
+    if use_mock or not await vk_token_sources_configured_async():
         logger.info("vk_public_using_mock", owner_id=owner_id, limit=limit)
         return [
             _mock_enriched_post(str(p["id"]), owner_id if owner_id else -1, p.get("text"))

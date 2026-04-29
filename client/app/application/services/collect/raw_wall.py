@@ -10,6 +10,9 @@ from app.application.services.collect.vk_post_enrichment import (
     enrich_wall_posts_with_comments,
 )
 from app.core.config import get_settings
+from app.infrastructure.repositories.vk_access_token import (
+    vk_token_sources_configured_async,
+)
 from app.infrastructure.vk import client as vk_client
 from app.utils.logger import get_logger
 
@@ -51,7 +54,7 @@ _MOCK: list[dict[str, Any]] = [
 
 
 async def collect_raw_posts(*, count: int, use_mock: bool) -> list[dict[str, Any]]:
-    if use_mock or not (settings.vk_api_token and settings.vk_api_token.strip()):
+    if use_mock or not await vk_token_sources_configured_async():
         logger.info("collect_using_mock", count=count)
         return list(_MOCK[: max(0, min(count, len(_MOCK)))])
 

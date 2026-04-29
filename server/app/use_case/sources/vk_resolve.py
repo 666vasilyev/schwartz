@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import httpx
 
-from app.core.config import get_settings
-from app.infrastructure.vk.client import VKApiError, resolve_screen_name
+from app.infrastructure.repositories.vk_access_token import vk_token_sources_configured_async
+from app.infrastructure.vk.client import (
+    VKApiError,
+    VkNoAccessTokenConfigured,
+    resolve_screen_name,
+)
 from app.infrastructure.vk.vk_public_url import extract_screen_or_id_token
 from app.utils.logger import get_logger
 
@@ -26,11 +30,12 @@ async def resolve_vk_owner_id(segment: str) -> int | None:
     _token, precomputed = extract_screen_or_id_token(segment)
     if precomputed is not None:
         return precomputed
-    settings = get_settings()
-    if not (settings.vk_api_token and settings.vk_api_token.strip()):
+    if not await vk_token_sources_configured_async():
         return None
     try:
         res = await resolve_screen_name(_token)
+    except VkNoAccessTokenConfigured:
+        return None
     except (VKApiError, OSError, httpx.HTTPError) as exc:
         logger.warning("vk_resolve_failed", segment=segment, error=str(exc))
         return None

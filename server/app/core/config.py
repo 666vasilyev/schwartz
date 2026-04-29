@@ -26,8 +26,7 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = Field(default="postgres", alias="POSTGRES_USER")
     POSTGRES_PASSWORD: str = Field(default="123", alias="POSTGRES_PASSWORD")
 
-    # Опционально: тот же user-токен, что у клиента — чтобы при POST /sources сразу заполнить vk_owner_id
-    vk_api_token: str = ""
+    # Токены VK только из таблицы vk_access_tokens (см. миграции)
     vk_api_version: str = "5.199"
     vk_api_base_url: str = "https://api.vk.com/method"
 

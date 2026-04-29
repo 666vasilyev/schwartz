@@ -1,6 +1,6 @@
 """
-Минимальный вызов VK API на сервере (только resolveScreenName для регистрации источника).
-Токен опционален: без токена owner_id не резолвится до первого сбора на клиенте.
+Минимальный вызов VK API на сервере (resolveScreenName для регистрации источника).
+Токен только из таблицы vk_access_tokens (+usage при выборке).
 """
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import get_settings
+from app.infrastructure.repositories.vk_access_token import acquire_vk_access_token
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -21,11 +22,19 @@ class VKApiError(Exception):
         super().__init__(f"VK API error {code}: {message}")
 
 
+class VkNoAccessTokenConfigured(Exception):
+    """Нет активной строки в vk_access_tokens или недоступна БД."""
+
+
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
 async def vk_call(method: str, **params: Any) -> dict[str, Any]:
     settings = get_settings()
+    token = await acquire_vk_access_token()
+    if not token:
+        raise VkNoAccessTokenConfigured("Нет активного токена в таблице vk_access_tokens")
+
     payload = {
-        "access_token": settings.vk_api_token,
+        "access_token": token,
         "v": settings.vk_api_version,
         **params,
     }
