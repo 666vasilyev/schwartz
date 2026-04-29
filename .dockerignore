@@ -1,0 +1,16 @@
+# Локальные venv (в образе зависимости из requirements.txt)
+venv
+.venv
+**/venv
+**/.venv
+env
+.envrc
+
+# Кэш Python
+__pycache__
+**/__pycache__
+*.py[cod]
+*.pyo
+
+# Уменьшить контекст отправки
+.git

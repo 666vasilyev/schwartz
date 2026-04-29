@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+wheels/
+*.whl
+MANIFEST
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env.local
+.env.*.local
+
+# Secrets — never commit
+.env
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+coverage.xml
+*.log
+
+# Alembic
+alembic/versions/*.pyc
+
+# ML models (large binary files)
+*.pt
+*.pth
+*.bin
+*.onnx
+whisper_models/
+easyocr_models/
+
+# Temp / uploads
+tmp/
+uploads/
+*.mp3
+*.mp4
+*.wav
+*.ogg
+*.m4a
+*.webm
+*.flac
+
+# mypy / pyright
+.mypy_cache/
+.pyright/
+pyrightconfig.json
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Docker
+*.env.docker
