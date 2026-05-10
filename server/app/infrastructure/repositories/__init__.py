@@ -1,4 +1,26 @@
-"""Репозитории доступа к сущностям БД (по одному модулю на сущность/группу)."""
+"""Репозитории доступа к сущностям БД."""
+from .collection_job import (
+    add_job_log,
+    cancel_job,
+    count_active_jobs_for_platform,
+    count_active_jobs_for_source,
+    count_active_jobs_for_worker,
+    count_job_logs,
+    count_jobs,
+    create_job,
+    find_due_sources,
+    find_stuck_jobs,
+    finish_job_failure,
+    finish_job_success,
+    finish_job_timeout,
+    get_job_by_id,
+    get_queue_stats,
+    list_job_logs,
+    list_jobs,
+    pick_next_job,
+    recover_stuck_jobs,
+    update_job,
+)
 from .common import utcnow
 from .post import (
     get_post_by_id,
@@ -11,12 +33,30 @@ from .post import (
 )
 from .post_comment import replace_comments_from_vk_collect
 from .source import (
+    add_audit_log,
     add_source,
+    count_audit_logs,
     count_sources,
     delete_source,
     get_source_by_id,
+    list_audit_logs,
     list_sources,
+    set_source_status,
+    soft_delete_source,
     update_source,
+)
+from .schedule import (
+    add_schedule_log,
+    count_rules,
+    count_schedule_logs,
+    count_schedule_logs_since,
+    create_rule,
+    delete_rule,
+    find_rule_for_source,
+    get_rule_by_id,
+    list_rules,
+    list_schedule_logs,
+    update_rule,
 )
 from .source_schwartz import (
     get_source_schwartz_by_source_id,
@@ -24,21 +64,64 @@ from .source_schwartz import (
 )
 
 __all__ = [
-    "add_source",
-    "count_sources",
-    "delete_source",
+    # collection jobs
+    "add_job_log",
+    "cancel_job",
+    "count_active_jobs_for_platform",
+    "count_active_jobs_for_source",
+    "count_active_jobs_for_worker",
+    "count_job_logs",
+    "count_jobs",
+    "create_job",
+    "find_due_sources",
+    "find_stuck_jobs",
+    "finish_job_failure",
+    "finish_job_success",
+    "finish_job_timeout",
+    "get_job_by_id",
+    "get_queue_stats",
+    "list_job_logs",
+    "list_jobs",
+    "pick_next_job",
+    "recover_stuck_jobs",
+    "update_job",
+    # common
+    "utcnow",
+    # posts
     "get_post_by_id",
     "get_post_by_source_and_external",
     "get_post_by_vk_id",
     "get_recent_posts",
-    "get_source_by_id",
-    "get_source_schwartz_by_source_id",
     "list_posts_by_owner_id",
     "list_posts_by_source_id",
-    "list_sources",
-    "replace_comments_from_vk_collect",
-    "replace_source_schwartz",
     "save_post",
+    # comments
+    "replace_comments_from_vk_collect",
+    # sources
+    "add_audit_log",
+    "add_source",
+    "count_audit_logs",
+    "count_sources",
+    "delete_source",
+    "get_source_by_id",
+    "list_audit_logs",
+    "list_sources",
+    "set_source_status",
+    "soft_delete_source",
     "update_source",
-    "utcnow",
+    # schwartz
+    "get_source_schwartz_by_source_id",
+    "replace_source_schwartz",
+    # schedule
+    "add_schedule_log",
+    "count_rules",
+    "count_schedule_logs",
+    "count_schedule_logs_since",
+    "create_rule",
+    "delete_rule",
+    "find_rule_for_source",
+    "get_rule_by_id",
+    "list_rules",
+    "list_schedule_logs",
+    "update_rule",
 ]

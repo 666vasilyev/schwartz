@@ -93,12 +93,7 @@ async def persist_vk_public_for_source(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Источник не найден",
         )
-    await update_source(
-        db,
-        src.id,
-        status=SourceStatus.RUNNING.value,
-        error_message=None,
-    )
+    await update_source(db, src.id, error_message=None)
     await db.commit()
     await db.refresh(src)
 
@@ -119,9 +114,7 @@ async def persist_vk_public_for_source(
                         "text": item.text,
                     },
                 )
-                await _apply_vk_collect_to_post(
-                    db, post_row, item, source_id=src.id
-                )
+                await _apply_vk_collect_to_post(db, post_row, item, source_id=src.id)
                 if pre is None:
                     saved += 1
                 enriched.append(
@@ -143,30 +136,25 @@ async def persist_vk_public_for_source(
             src.id,
             status=SourceStatus.ERROR.value,
             error_message=str(exc)[:2000],
+            last_error_at=utcnow(),
+            error_count=src.error_count + 1,
         )
         await db.commit()
         raise
 
     now = utcnow()
+    update_kwargs: dict = dict(
+        status=SourceStatus.ACTIVE.value,
+        last_run_at=now,
+        last_fetch_at=now,
+        last_success_at=now,
+        error_message=None,
+        error_count=0,
+        vk_owner_id=vk_owner_id,
+    )
     if name is not None:
-        await update_source(
-            db,
-            src.id,
-            status=SourceStatus.OK.value,
-            last_run_at=now,
-            error_message=None,
-            vk_owner_id=vk_owner_id,
-            name=name,
-        )
-    else:
-        await update_source(
-            db,
-            src.id,
-            status=SourceStatus.OK.value,
-            last_run_at=now,
-            error_message=None,
-            vk_owner_id=vk_owner_id,
-        )
+        update_kwargs["name"] = name
+    await update_source(db, src.id, **update_kwargs)
     await db.commit()
     await db.refresh(src)
 
@@ -180,7 +168,7 @@ async def persist_vk_public_for_source(
         source_id=src.id,
         name=src.name,
         source="vk",
-        status=SourceStatus.OK.value,
+        status=SourceStatus.ACTIVE.value,
         url=url,
         vk_owner_id=vk_owner_id,
         posts=enriched,
@@ -204,12 +192,7 @@ async def persist_rss_public_for_source(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Источник не найден",
         )
-    await update_source(
-        db,
-        src.id,
-        status=SourceStatus.RUNNING.value,
-        error_message=None,
-    )
+    await update_source(db, src.id, error_message=None)
     await db.commit()
     await db.refresh(src)
 
@@ -249,6 +232,8 @@ async def persist_rss_public_for_source(
             src.id,
             status=SourceStatus.ERROR.value,
             error_message=str(exc)[:2000],
+            last_error_at=utcnow(),
+            error_count=src.error_count + 1,
         )
         await db.commit()
         raise
@@ -257,38 +242,27 @@ async def persist_rss_public_for_source(
     extra = dict(src.extra) if src.extra else {}
     if feed_title:
         extra["feed_title"] = feed_title
+    update_kwargs: dict = dict(
+        status=SourceStatus.ACTIVE.value,
+        last_run_at=now,
+        last_fetch_at=now,
+        last_success_at=now,
+        error_message=None,
+        error_count=0,
+        extra=extra,
+    )
     if name is not None:
-        await update_source(
-            db,
-            src.id,
-            status=SourceStatus.OK.value,
-            last_run_at=now,
-            error_message=None,
-            name=name,
-            extra=extra,
-        )
-    else:
-        await update_source(
-            db,
-            src.id,
-            status=SourceStatus.OK.value,
-            last_run_at=now,
-            error_message=None,
-            extra=extra,
-        )
+        update_kwargs["name"] = name
+    await update_source(db, src.id, **update_kwargs)
     await db.commit()
     await db.refresh(src)
 
-    logger.info(
-        "collect_rss_persisted",
-        source_id=src.id,
-        n=len(enriched),
-    )
+    logger.info("collect_rss_persisted", source_id=src.id, n=len(enriched))
     return CollectVkPublicResponse(
         source_id=src.id,
         name=src.name,
         source="rss",
-        status=SourceStatus.OK.value,
+        status=SourceStatus.ACTIVE.value,
         url=url,
         vk_owner_id=None,
         posts=enriched,

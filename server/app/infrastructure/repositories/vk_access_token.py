@@ -66,3 +66,39 @@ async def acquire_vk_access_token() -> str | None:
     except SQLAlchemyError as exc:
         logger.warning("vk_db_token_pick_failed", error=str(exc))
         return None
+
+
+async def add_token(session: AsyncSession, access_token: str) -> VkAccessToken:
+    token = VkAccessToken(access_token=access_token.strip(), is_active=True)
+    session.add(token)
+    await session.flush()
+    return token
+
+
+async def get_token_by_id(session: AsyncSession, token_id: int) -> VkAccessToken | None:
+    result = await session.get(VkAccessToken, token_id)
+    return result
+
+
+async def list_tokens(session: AsyncSession) -> list[VkAccessToken]:
+    q = select(VkAccessToken).order_by(VkAccessToken.created_at.desc())
+    result = await session.execute(q)
+    return list(result.scalars().all())
+
+
+async def deactivate_token(session: AsyncSession, token_id: int) -> bool:
+    token = await get_token_by_id(session, token_id)
+    if token is None:
+        return False
+    token.is_active = False
+    await session.flush()
+    return True
+
+
+async def activate_token(session: AsyncSession, token_id: int) -> bool:
+    token = await get_token_by_id(session, token_id)
+    if token is None:
+        return False
+    token.is_active = True
+    await session.flush()
+    return True

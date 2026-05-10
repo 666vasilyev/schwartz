@@ -63,11 +63,15 @@ async def list_posts_by_owner_id(db: AsyncSession, owner_id: int) -> list[Post]:
     return list(result.scalars().all())
 
 
-async def list_posts_by_source_id(db: AsyncSession, source_id: int) -> list[Post]:
-    """Посты, привязанные к источнику (RSS и т.д.)."""
+async def list_posts_by_source_id(
+    db: AsyncSession, source_id: int, *, skip: int = 0, limit: int = 20
+) -> list[Post]:
+    """Посты, привязанные к источнику."""
     result = await db.execute(
         select(Post)
         .where(Post.source_id == source_id)
-        .order_by(Post.id.asc())
+        .order_by(Post.id.desc())
+        .offset(skip)
+        .limit(limit)
     )
     return list(result.scalars().all())
