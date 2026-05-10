@@ -80,6 +80,37 @@ def upgrade() -> None:
         WHERE vk_owner_id IS NOT NULL AND external_id IS NULL
     """)
 
+    # ── Deduplicate before creating unique indexes ─────────────────────────
+    # Keep the row with the smallest id for each (platform, external_id) pair;
+    # soft-delete the rest so the unique partial index can be created cleanly.
+    op.execute("""
+        UPDATE sources
+        SET deleted_at = now(),
+            status     = 'deleted'
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM sources
+            WHERE external_id IS NOT NULL
+            GROUP BY platform, external_id
+        )
+        AND external_id IS NOT NULL
+        AND deleted_at IS NULL
+    """)
+    # Same deduplication for (platform, username)
+    op.execute("""
+        UPDATE sources
+        SET deleted_at = now(),
+            status     = 'deleted'
+        WHERE id NOT IN (
+            SELECT MIN(id)
+            FROM sources
+            WHERE username IS NOT NULL
+            GROUP BY platform, username
+        )
+        AND username IS NOT NULL
+        AND deleted_at IS NULL
+    """)
+
     # ── Indexes on new columns ─────────────────────────────────────────────
     op.create_index("ix_sources_source_type", "sources", ["source_type"], unique=False)
     op.create_index("ix_sources_platform", "sources", ["platform"], unique=False)

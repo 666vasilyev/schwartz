@@ -190,7 +190,7 @@ def configure_logging() -> None:
     root_logger.setLevel(log_level)
 
     # Silence overly verbose third-party loggers
-    for noisy in ("httpx", "httpcore", "sqlalchemy.engine", "asyncio"):
+    for noisy in ("httpx", "httpcore", "sqlalchemy.engine", "sqlalchemy.pool", "asyncio"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

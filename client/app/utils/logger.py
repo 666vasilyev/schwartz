@@ -49,6 +49,9 @@ def configure_logging() -> None:
     root_logger.handlers = [handler]
     root_logger.setLevel(log_level)
 
+    for noisy in ("httpx", "httpcore", "sqlalchemy.engine", "sqlalchemy.pool", "asyncio"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     return structlog.get_logger(name)

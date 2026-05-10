@@ -110,7 +110,7 @@ class SourceRead(BaseModel):
     region_hint: str | None = None
     topic_hint: str | None = None
     owner_id: int | None = None
-    source_metadata: dict | None = Field(None, alias="metadata")
+    source_metadata: dict | None = None
     # Legacy
     last_run_at: datetime | None = None
     error_message: str | None = None
