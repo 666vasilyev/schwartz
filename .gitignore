@@ -71,3 +71,4 @@ pyrightconfig.json
 # Docker
 *.env.docker
 CLAUDE.md
+.claude/
