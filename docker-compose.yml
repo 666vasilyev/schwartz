@@ -14,8 +14,6 @@ services:
     build:
       context: .
       dockerfile: server/Dockerfile
-    ports:
-      - "8000:8000"
     env_file: .env
     environment:
       COLLECTOR_BASE_URL: http://client:8080
@@ -27,8 +25,6 @@ services:
     build:
       context: .
       dockerfile: client/Dockerfile
-    ports:
-      - "8080:8080"
     env_file: .env
     environment:
       POSTGRES_HOST: db
@@ -37,3 +33,14 @@ services:
         condition: service_healthy
       server:
         condition: service_started
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      server:
+        condition: service_started
+    restart: unless-stopped

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
+    # Прокси только для LLM-запросов (например socks5://host-gateway:1080)
+    llm_proxy: str = ""
 
     # Application
     app_env: str = "development"
