@@ -24,6 +24,11 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 settings = get_settings()
 
+# Ограничение параллельных LLM-запросов: каждый analyze_post делает 2 вызова,
+# поэтому реальных HTTP-соединений будет _LLM_CONCURRENCY * 2
+_LLM_CONCURRENCY = 5
+_llm_semaphore = asyncio.Semaphore(_LLM_CONCURRENCY)
+
 
 async def analyze_post(
     post: PostInput,
@@ -103,18 +108,20 @@ async def analyze_source_posts_in_memory(posts: list[Post]) -> SourcePostsAnalys
         else:
             to_analyze.append(row)
 
-    tasks = [
-        analyze_post(
-            PostInput(
-                vk_post_id=row.vk_post_id,
-                owner_id=row.owner_id,
-                text=row.text,
+    async def _analyze_with_limit(row: Post) -> ContentAnalysisResult:
+        async with _llm_semaphore:
+            return await analyze_post(
+                PostInput(
+                    vk_post_id=row.vk_post_id,
+                    owner_id=row.owner_id,
+                    text=row.text,
+                )
             )
-        )
-        for row in to_analyze
-    ]
+
     analyses: list[ContentAnalysisResult] = (
-        list(await asyncio.gather(*tasks)) if tasks else []
+        list(await asyncio.gather(*[_analyze_with_limit(row) for row in to_analyze]))
+        if to_analyze
+        else []
     )
 
     snapshots: list[AnalyzedPostSnapshot] = []
