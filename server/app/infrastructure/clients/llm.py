@@ -1,4 +1,5 @@
 from typing import Any
+import httpx
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 from app.core.config import get_settings
@@ -7,7 +8,8 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 settings = get_settings()
 
-_client = AsyncOpenAI(api_key=settings.openai_api_key)
+_http_client = httpx.AsyncClient(proxy=settings.llm_proxy) if settings.llm_proxy else None
+_client = AsyncOpenAI(api_key=settings.openai_api_key, http_client=_http_client)
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
