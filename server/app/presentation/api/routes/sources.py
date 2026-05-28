@@ -1,6 +1,5 @@
 """
 Sources management API — /api/v1/sources
-All 20 endpoints per spec.
 """
 from __future__ import annotations
 
@@ -16,6 +15,8 @@ from app.presentation.schemas.source import (
     BulkUpdateRequest,
     BulkUpdateResponse,
     JobListResponse,
+    SourceActionRequest,
+    SourceActionResponse,
     SourceCreateRequest,
     SourceHealth,
     SourceListResponse,
@@ -25,9 +26,8 @@ from app.presentation.schemas.source import (
     SourceUpdateRequest,
     SourceValidateResponse,
 )
+from app.use_case.sources import action as action_uc
 from app.use_case.sources import delete as delete_uc
-from app.use_case.sources import disable as disable_uc
-from app.use_case.sources import enable as enable_uc
 from app.use_case.sources import export_sources as export_uc
 from app.use_case.sources import get as get_uc
 from app.use_case.sources import get_all as get_all_uc
@@ -35,18 +35,13 @@ from app.use_case.sources import health as health_uc
 from app.use_case.sources import import_sources as import_uc
 from app.use_case.sources import logs as logs_uc
 from app.use_case.sources import patch as patch_uc
-from app.use_case.sources import pause as pause_uc
 from app.use_case.sources import post as post_uc
 from app.use_case.sources import refresh_metadata as refresh_metadata_uc
-from app.use_case.sources import reset_error as reset_error_uc
 from app.use_case.sources import source_posts as source_posts_uc
 from app.use_case.sources import stats as stats_uc
 from app.use_case.sources import validate as validate_uc
 from app.use_case.sources import bulk_create as bulk_create_uc
 from app.use_case.sources import bulk_update as bulk_update_uc
-from app.presentation.schemas.collection_job import FetchRequest, HistoricalFetchRequest, JobRead
-from app.use_case.collection import jobs as jobs_uc
-from app.infrastructure.db.orm.models import JobType
 
 router = APIRouter(prefix="/api/v1/sources", tags=["Sources"])
 
@@ -188,55 +183,23 @@ async def remove_source(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ── Status transitions ─────────────────────────────────────────────────────
+# ── Unified action endpoint ────────────────────────────────────────────────
 
 
 @router.post(
-    "/{source_id}/enable",
-    response_model=SourceRead,
-    summary="Включить источник",
+    "/{source_id}/action",
+    response_model=SourceActionResponse,
+    summary=(
+        "Действие над источником: "
+        "enable | disable | pause | reset_error | fetch | fetch_history | fetch_incremental"
+    ),
 )
-async def enable_source(
+async def source_action(
     source_id: int = Path(..., ge=1),
+    body: SourceActionRequest = ...,
     db: AsyncSession = Depends(get_session),
-) -> SourceRead:
-    return await enable_uc.execute(db, source_id)
-
-
-@router.post(
-    "/{source_id}/pause",
-    response_model=SourceRead,
-    summary="Поставить источник на паузу",
-)
-async def pause_source(
-    source_id: int = Path(..., ge=1),
-    db: AsyncSession = Depends(get_session),
-) -> SourceRead:
-    return await pause_uc.execute(db, source_id)
-
-
-@router.post(
-    "/{source_id}/disable",
-    response_model=SourceRead,
-    summary="Отключить источник",
-)
-async def disable_source(
-    source_id: int = Path(..., ge=1),
-    db: AsyncSession = Depends(get_session),
-) -> SourceRead:
-    return await disable_uc.execute(db, source_id)
-
-
-@router.post(
-    "/{source_id}/reset-error",
-    response_model=SourceRead,
-    summary="Сбросить статус ошибки",
-)
-async def reset_error_source(
-    source_id: int = Path(..., ge=1),
-    db: AsyncSession = Depends(get_session),
-) -> SourceRead:
-    return await reset_error_uc.execute(db, source_id)
+) -> SourceActionResponse:
+    return await action_uc.execute(db, source_id, body)
 
 
 # ── Diagnostics & metadata ─────────────────────────────────────────────────
@@ -309,7 +272,7 @@ async def source_posts(
 @router.get(
     "/{source_id}/jobs",
     response_model=JobListResponse,
-    summary="Задачи сбора по источнику (заглушка — планировщик не реализован)",
+    summary="Задачи сбора по источнику",
 )
 async def source_jobs(
     source_id: int = Path(..., ge=1),
@@ -317,7 +280,6 @@ async def source_jobs(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_session),
 ) -> JobListResponse:
-    # No scheduler implemented yet — return empty list
     return JobListResponse(items=[], total=0)
 
 
@@ -333,50 +295,3 @@ async def source_logs(
     db: AsyncSession = Depends(get_session),
 ) -> AuditLogListResponse:
     return await logs_uc.execute(db, source_id, skip=skip, limit=limit)
-
-
-# ── Fetch / Collection job shortcuts ──────────────────────────────────────
-
-
-@router.post(
-    "/{source_id}/fetch",
-    response_model=JobRead,
-    status_code=status.HTTP_201_CREATED,
-    summary="Запустить сбор по источнику (создаёт задачу manual_fetch)",
-)
-async def fetch_source(
-    source_id: int = Path(..., ge=1),
-    body: FetchRequest = ...,
-    db: AsyncSession = Depends(get_session),
-) -> JobRead:
-    return await jobs_uc.fetch_source(db, source_id, body, job_type=JobType.MANUAL_FETCH.value)
-
-
-@router.post(
-    "/{source_id}/fetch/history",
-    response_model=JobRead,
-    status_code=status.HTTP_201_CREATED,
-    summary="Запустить исторический сбор (historical_fetch)",
-)
-async def fetch_source_history(
-    source_id: int = Path(..., ge=1),
-    body: HistoricalFetchRequest = ...,
-    db: AsyncSession = Depends(get_session),
-) -> JobRead:
-    return await jobs_uc.fetch_source_history(db, source_id, body)
-
-
-@router.post(
-    "/{source_id}/fetch/incremental",
-    response_model=JobRead,
-    status_code=status.HTTP_201_CREATED,
-    summary="Запустить инкрементальный сбор (только новее last_success_at)",
-)
-async def fetch_source_incremental(
-    source_id: int = Path(..., ge=1),
-    body: FetchRequest = ...,
-    db: AsyncSession = Depends(get_session),
-) -> JobRead:
-    return await jobs_uc.fetch_source(
-        db, source_id, body, job_type=JobType.SCHEDULED_FETCH.value
-    )

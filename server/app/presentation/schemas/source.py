@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -222,3 +222,46 @@ class JobRead(BaseModel):
 class JobListResponse(BaseModel):
     items: list[JobRead]
     total: int
+
+
+# ── Action ──────────────────────────────────────────────────────────────────
+
+SourceAction = Literal[
+    "enable",
+    "disable",
+    "pause",
+    "reset_error",
+    "fetch",
+    "fetch_history",
+    "fetch_incremental",
+]
+
+
+class SourceActionRequest(BaseModel):
+    """Единый запрос на действие над источником."""
+
+    action: SourceAction
+
+    # ── параметры для fetch-действий (игнорируются при status-переходах) ──
+    limit: int | None = Field(None, ge=1, le=50_000, description="Лимит постов (fetch/*)")
+    priority: int = Field(default=5, ge=1, le=10)
+    max_retries: int = Field(default=3, ge=0, le=10)
+    timeout_seconds: int = Field(default=300, ge=10, le=3600)
+    correlation_id: str | None = Field(None, max_length=128)
+    params: dict[str, Any] | None = None
+
+    # ── только для fetch_history ──────────────────────────────────────────
+    date_from: datetime | None = None
+    date_to: datetime | None = None
+
+
+class SourceActionResponse(BaseModel):
+    """Ответ на action-запрос.
+    При status-переходах заполняется source, при fetch — job.
+    """
+
+    action: str
+    source: SourceRead | None = None
+    # JobRead из collection_job импортируется в use_case; здесь храним как dict
+    # чтобы не создавать циклический импорт между schema-модулями.
+    job: dict[str, Any] | None = None
