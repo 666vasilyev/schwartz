@@ -10,6 +10,7 @@ from app.application.services.worker.runner import worker as collection_worker
 from app.core.config import get_settings
 from app.presentation.api.routes import collect, content, sources
 from app.presentation.api.routes.collection import router as collection_router
+from app.presentation.api.routes.posts import router as posts_router
 from app.presentation.api.routes.schedule import router as schedule_router
 from app.presentation.api.routes.vk import router as vk_router
 from app.presentation.middleware.request_logging import RequestLoggingMiddleware
@@ -73,6 +74,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 # Register routers
 app.include_router(content.router)
 app.include_router(sources.router)
+app.include_router(posts_router)
 app.include_router(collect.router)
 app.include_router(collection_router)
 app.include_router(vk_router)

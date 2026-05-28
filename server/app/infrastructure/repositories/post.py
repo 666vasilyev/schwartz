@@ -1,7 +1,9 @@
-from sqlalchemy import select
+from datetime import datetime
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.db.orm.models import Post
+from app.infrastructure.db.orm.models import Post, Source
 
 
 async def get_post_by_vk_id(db: AsyncSession, vk_post_id: str) -> Post | None:
@@ -75,3 +77,56 @@ async def list_posts_by_source_id(
         .limit(limit)
     )
     return list(result.scalars().all())
+
+
+def _apply_post_filters(
+    q,
+    *,
+    source_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    category: str | None = None,
+):
+    """Применяет фильтры к запросу постов. При фильтре по category делает JOIN на sources."""
+    if category is not None:
+        q = q.join(Source, Post.source_id == Source.id).where(Source.category == category)
+    if source_id is not None:
+        q = q.where(Post.source_id == source_id)
+    if date_from is not None:
+        q = q.where(Post.published_at >= date_from)
+    if date_to is not None:
+        q = q.where(Post.published_at <= date_to)
+    return q
+
+
+async def list_posts(
+    db: AsyncSession,
+    *,
+    skip: int = 0,
+    limit: int = 20,
+    source_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    category: str | None = None,
+) -> list[Post]:
+    """Список постов с фильтрами по источнику, дате и категории СМИ."""
+    q = select(Post).order_by(Post.published_at.desc().nulls_last(), Post.id.desc())
+    q = _apply_post_filters(q, source_id=source_id, date_from=date_from, date_to=date_to, category=category)
+    q = q.offset(skip).limit(limit)
+    result = await db.execute(q)
+    return list(result.scalars().all())
+
+
+async def count_posts(
+    db: AsyncSession,
+    *,
+    source_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    category: str | None = None,
+) -> int:
+    """Количество постов с теми же фильтрами."""
+    q = select(func.count()).select_from(Post)
+    q = _apply_post_filters(q, source_id=source_id, date_from=date_from, date_to=date_to, category=category)
+    result = await db.execute(q)
+    return int(result.scalar_one() or 0)

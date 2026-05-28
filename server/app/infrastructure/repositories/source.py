@@ -38,6 +38,7 @@ async def add_source(
     region_hint: str | None = None,
     topic_hint: str | None = None,
     owner_id: int | None = None,
+    category: str | None = None,
     extra: dict | None = None,
     source_metadata: dict | None = None,
 ) -> Source:
@@ -62,6 +63,7 @@ async def add_source(
         region_hint=region_hint,
         topic_hint=topic_hint,
         owner_id=owner_id,
+        category=category,
         extra=extra,
         source_metadata=source_metadata,
     )
@@ -105,6 +107,7 @@ async def update_source(
     region_hint: str | None | object = _OMIT,
     topic_hint: str | None | object = _OMIT,
     owner_id: int | None | object = _OMIT,
+    category: str | None | object = _OMIT,
     last_run_at: datetime | None | object = _OMIT,
     error_message: str | None | object = _OMIT,
     vk_owner_id: int | None | object = _OMIT,
@@ -139,6 +142,7 @@ async def update_source(
         "region_hint": region_hint,
         "topic_hint": topic_hint,
         "owner_id": owner_id,
+        "category": category,
         "last_run_at": last_run_at,
         "error_message": error_message,
         "vk_owner_id": vk_owner_id,

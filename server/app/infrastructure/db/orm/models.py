@@ -34,6 +34,12 @@ class SourceStatus(StrEnum):
     DELETED = "deleted"
 
 
+class SourceCategory(StrEnum):
+    RU_SMI = "ru_smi"
+    UA_SMI = "ua_smi"
+    FOREIGN_SMI = "foreign_smi"
+
+
 class Source(Base):
     """Источник для сборщика: VK группа/паблик, RSS/Atom и др."""
 
@@ -96,6 +102,9 @@ class Source(Base):
 
     # User/org binding
     owner_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+
+    # Source category for filtering
+    category: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
     # Rich metadata fetched from the source (VK group info, RSS feed title, etc.)
     source_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)

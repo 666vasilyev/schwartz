@@ -24,3 +24,29 @@ class PostResponse(BaseModel):
     payload: dict[str, Any] | None = None
 
     model_config = {"from_attributes": True}
+
+
+class PostRead(BaseModel):
+    """Полное представление поста для GET /posts."""
+
+    id: int
+    source_id: int | None = None
+    external_id: str | None = None
+    vk_post_id: str | None = None
+    owner_id: int | None = None
+    text: str | None = None
+    published_at: datetime | None = None
+    is_ad: bool = False
+    reactions: dict[str, Any] | None = None
+    attachments: list[Any] | None = None
+    payload: dict[str, Any] | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PostListResponse(BaseModel):
+    items: list[PostRead]
+    total: int
+    skip: int = Field(ge=0)
+    limit: int = Field(ge=1, le=500)
