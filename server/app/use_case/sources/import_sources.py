@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.presentation.schemas.source import BulkCreateResponse, SourceCreateRequest, SourceRead
+from app.presentation.schemas.source import BulkCreateResponse, SourceCreateRequest, SourceRead, BulkCreateResponseErrors
 from app.use_case.sources import post as post_uc
 
 _MAX_ROWS = 500
@@ -41,15 +41,18 @@ async def execute(db: AsyncSession, file: UploadFile) -> BulkCreateResponse:
 
     for i, row_data in enumerate(rows):
         try:
-            req = SourceCreateRequest.model_validate(row_data)
-            result = await post_uc.execute(db, req)
+            async with db.begin_nested():  # savepoint per item — не откатывает всю транзакцию
+                req = SourceCreateRequest.model_validate(row_data)
+                result = await post_uc.execute(db, req)
             created.append(result)
         except Exception as exc:
-            await db.rollback()
             errors.append({"index": i, "data": row_data, "detail": str(exc)})
-
-    return BulkCreateResponse(created=created, errors=errors)
-
+    if errors != []:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=errors,
+        )
+    return BulkCreateResponse(created=created)
 
 def _parse_json(content: bytes) -> list[dict[str, Any]]:
     data = json.loads(content)

@@ -132,6 +132,9 @@ class SourceListResponse(BaseModel):
 
 class BulkCreateResponse(BaseModel):
     created: list[SourceRead]
+    # errors: list[dict[str, Any]]
+
+class BulkCreateResponseErrors(BaseModel):
     errors: list[dict[str, Any]]
 
 

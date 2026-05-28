@@ -7,7 +7,7 @@ import io
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.repositories import count_sources, list_sources
+from app.infrastructure.repositories import list_sources
 from app.presentation.schemas.source import SourceRead
 
 _EXPORT_LIMIT = 10_000
