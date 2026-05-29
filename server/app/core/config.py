@@ -40,6 +40,29 @@ class Settings(BaseSettings):
     # Тот же секрет, что у collector; пустой — без заголовка Authorization (локальная разработка)
     collector_shared_secret: str = ""
 
+    # ── Clustering / embeddings ────────────────────────────────────────────
+    # Имя модели sentence-transformers; должно соответствовать embedding_dim
+    embedding_model_name: str = "intfloat/multilingual-e5-base"
+    embedding_dim: int = 768
+    # Максимальная длина текста, отдаваемая модели (символы, не токены).
+    embedding_max_chars: int = 2000
+    # Сколько постов считать за один вызов encode(); подбирается под RAM/CPU
+    embedding_batch_size: int = 32
+
+    # Порог cosine similarity для отнесения поста к существующему сюжету.
+    # 1.0 — идентично, 0.0 — ортогонально. 0.78–0.85 — типовой диапазон для новостей.
+    cluster_similarity_threshold: float = 0.82
+    # Скользящее окно для поиска кандидатов-кластеров (дней).
+    cluster_window_days: int = 7
+    # Минимум постов в сюжете, чтобы он считался "созревшим" (для тренд-выборки).
+    cluster_min_size_for_trending: int = 3
+    # Период фоновой задачи кластеризации (секунды).
+    clustering_tick_seconds: int = 120
+    # Максимум постов, обрабатываемых за один тик (защита от длинных батчей).
+    clustering_batch_size: int = 200
+    # Включена ли фоновая задача кластеризации (в тестах можно выключить).
+    clustering_enabled: bool = True
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"

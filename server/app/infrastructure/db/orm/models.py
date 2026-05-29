@@ -16,7 +16,12 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
+from app.core.config import get_settings
 from app.infrastructure.db.orm.session import Base
+
+_settings = get_settings()
+EMBEDDING_DIM = _settings.embedding_dim
 
 
 class SourceType(StrEnum):
@@ -502,3 +507,126 @@ class ScheduleLog(Base):
     )
 
     rule: Mapped["ScheduleRule | None"] = relationship(back_populates="logs")
+
+
+# ─── Clustering / embeddings ───────────────────────────────────────────────
+
+
+class StoryClusterStatus(StrEnum):
+    ACTIVE = "active"      # ещё могут приходить новые посты
+    ARCHIVED = "archived"  # вне окна, не пополняется
+
+
+class PostEmbedding(Base):
+    """
+    Эмбеддинг текста поста. Отдельная таблица, чтобы:
+      - не утяжелять `posts` тяжёлым VECTOR-столбцом;
+      - легко перегенерировать при смене модели (truncate + перерасчёт);
+      - индексировать HNSW только по эмбеддингам.
+    """
+
+    __tablename__ = "post_embeddings"
+
+    post_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("posts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    # Хэш входного текста — чтобы понимать, что пост менялся и эмбеддинг устарел
+    text_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class StoryCluster(Base):
+    """
+    Сюжетный кластер: несколько постов из разных источников об одном событии.
+    Центроид пересчитывается онлайн при добавлении поста.
+    """
+
+    __tablename__ = "story_clusters"
+    __table_args__ = (
+        Index("ix_story_clusters_status_last_seen", "status", "last_seen_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    centroid: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM), nullable=False)
+    # Имя модели, которой считался центроид; при смене — кластер инвалидируется
+    model_name: Mapped[str] = mapped_column(String(128), nullable=False)
+
+    # Человекочитаемое имя/заголовок сюжета (генерится LLM один раз и обновляется)
+    title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Сводка-сюжет (1–3 предложения, опционально от LLM)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Динамические темы/ярлыки от LLM, например ["конфликт", "энергетика"]
+    topics: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=StoryClusterStatus.ACTIVE.value, index=True
+    )
+
+    posts_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sources_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+
+    # Когда последний раз обновляли title/summary/topics через LLM
+    labels_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    assignments: Mapped[list["PostClusterAssignment"]] = relationship(
+        back_populates="cluster",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class PostClusterAssignment(Base):
+    """
+    Назначение поста сюжетному кластеру (N:1). Пост может принадлежать только одному
+    активному сюжету. При перекластеризации история ассайнментов не хранится —
+    просто перезаписывается.
+    """
+
+    __tablename__ = "post_cluster_assignments"
+    __table_args__ = (
+        Index(
+            "ix_pca_cluster_id_assigned_at",
+            "cluster_id",
+            "assigned_at",
+        ),
+    )
+
+    post_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("posts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    cluster_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("story_clusters.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    similarity: Mapped[float] = mapped_column(Float, nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    cluster: Mapped["StoryCluster"] = relationship(back_populates="assignments")

@@ -62,6 +62,29 @@ from .source_schwartz import (
     get_source_schwartz_by_source_id,
     replace_source_schwartz,
 )
+from .post_embedding import (
+    get_embedding,
+    list_posts_missing_embedding,
+    upsert_embedding,
+)
+from .story_cluster import (
+    archive_stale_clusters,
+    count_clusters,
+    count_posts_in_cluster,
+    count_sources_in_cluster,
+    create_cluster,
+    delete_all_clustering_data,
+    find_nearest_active_cluster,
+    get_assignment_by_post,
+    get_cluster_by_id,
+    list_cluster_post_texts,
+    list_clusters,
+    list_posts_in_cluster,
+    list_trending,
+    update_cluster_centroid,
+    update_cluster_labels,
+    upsert_assignment,
+)
 
 __all__ = [
     # collection jobs
@@ -112,6 +135,27 @@ __all__ = [
     # schwartz
     "get_source_schwartz_by_source_id",
     "replace_source_schwartz",
+    # post embeddings
+    "get_embedding",
+    "list_posts_missing_embedding",
+    "upsert_embedding",
+    # story clusters
+    "archive_stale_clusters",
+    "count_clusters",
+    "count_posts_in_cluster",
+    "count_sources_in_cluster",
+    "create_cluster",
+    "delete_all_clustering_data",
+    "find_nearest_active_cluster",
+    "get_assignment_by_post",
+    "get_cluster_by_id",
+    "list_cluster_post_texts",
+    "list_clusters",
+    "list_posts_in_cluster",
+    "list_trending",
+    "update_cluster_centroid",
+    "update_cluster_labels",
+    "upsert_assignment",
     # schedule
     "add_schedule_log",
     "count_rules",

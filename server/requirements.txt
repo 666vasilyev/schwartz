@@ -13,3 +13,7 @@ structlog>=24.0
 openai>=1.0
 feedparser>=6.0
 python-multipart
+# Vector store / clustering
+pgvector>=0.3
+sentence-transformers>=3.0
+numpy>=1.26

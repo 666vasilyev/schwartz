@@ -5,10 +5,12 @@ from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.application.services.content.clustering_runner import runner as clustering_runner
 from app.application.services.scheduler.runner import scheduler
 from app.application.services.worker.runner import worker as collection_worker
 from app.core.config import get_settings
 from app.presentation.api.routes import collect, content, sources
+from app.presentation.api.routes.clusters import router as clusters_router
 from app.presentation.api.routes.collection import router as collection_router
 from app.presentation.api.routes.posts import router as posts_router
 from app.presentation.api.routes.schedule import router as schedule_router
@@ -27,8 +29,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info(Events.WORKER_HEARTBEAT, message="Application startup", environment=settings.app_env)
     collection_worker.start()
     scheduler.start()
+    clustering_runner.start()
     yield
     logger.info(Events.WORKER_SHUTDOWN, message="Application shutdown")
+    await clustering_runner.stop()
     await scheduler.stop()
     await collection_worker.stop()
 
@@ -79,6 +83,7 @@ app.include_router(collect.router)
 app.include_router(collection_router)
 app.include_router(vk_router)
 app.include_router(schedule_router)
+app.include_router(clusters_router)
 
 
 @app.get("/health", tags=["Health"], summary="Liveness probe")
@@ -92,4 +97,5 @@ async def health() -> dict:
             "active_jobs": collection_worker.running_jobs,
         },
         "scheduler": scheduler.state(),
+        "clustering": clustering_runner.state(),
     }
