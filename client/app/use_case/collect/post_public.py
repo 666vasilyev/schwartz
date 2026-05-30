@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from fastapi import HTTPException, status
+from tenacity import RetryError
 
 from app.application.services.collect.public_wall import (
     collect_public_posts_for_ingest,
     resolve_wall_owner_id,
 )
+from app.infrastructure.vk.client import VKApiError
 from app.infrastructure.vk.vk_public_url import (
     normalize_vk_url,
     public_path_segment_from_url,
@@ -34,11 +36,25 @@ async def execute(body: PublicCollectRequest) -> PublicCollectResponse:
                 detail=f"Не удалось определить стену: {exc!s}",
             ) from exc
 
-    posts = await collect_public_posts_for_ingest(
-        owner_id=owner_id,
-        limit=body.limit,
-        use_mock=body.use_mock,
-    )
+    try:
+        posts = await collect_public_posts_for_ingest(
+            owner_id=owner_id,
+            limit=body.limit,
+            use_mock=body.use_mock,
+        )
+    except VKApiError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except RetryError as exc:
+        cause = exc.last_attempt.exception()
+        detail = str(cause) if cause else str(exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=detail,
+        ) from exc
+
     return PublicCollectResponse(
         url=norm_url,
         vk_owner_id=owner_id,
