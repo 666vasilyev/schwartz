@@ -2,9 +2,10 @@
 POST /analyze/source/{source_id} — посты стены источника: LLM по каждому; средние Шварца в БД.
 GET  /analyze/source/{source_id}/stored — последний сохранённый агрегат Шварца из БД.
 """
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
 from app.presentation.schemas.analysis import (
     LemmaAnalysisResult,
@@ -31,6 +32,23 @@ router = APIRouter(prefix="/analyze", tags=["Content Analysis"])
 )
 def analyze_text_lemma(body: LemmaTextRequest) -> LemmaAnalysisResult:
     return analyze_lemma.execute(body.text)
+
+
+@router.get(
+    "/post/{post_id}/lemma",
+    response_model=LemmaAnalysisResult,
+    summary="Анализ поста по словарному методу (lemma_coefficients_RUS.csv)",
+)
+async def analyze_post_lemma(
+    post_id: int,
+    db: AsyncSession = Depends(get_session),
+) -> LemmaAnalysisResult:
+    post = await get_post_by_id(db, post_id)
+    if post is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пост не найден")
+    if not post.text or not post.text.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Текст поста пуст")
+    return analyze_lemma.execute(post.text)
 
 
 @router.get(
