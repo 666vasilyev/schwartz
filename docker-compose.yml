@@ -17,6 +17,8 @@ services:
     env_file: .env
     environment:
       COLLECTOR_BASE_URL: http://client:8080
+    extra_hosts:
+      - "host-gateway:host-gateway"
     depends_on:
       db:
         condition: service_healthy
@@ -28,6 +30,8 @@ services:
     env_file: .env
     environment:
       POSTGRES_HOST: db
+    extra_hosts:
+      - "host-gateway:host-gateway"
     depends_on:
       db:
         condition: service_healthy
