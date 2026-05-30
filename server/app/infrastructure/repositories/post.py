@@ -82,14 +82,14 @@ async def list_posts_by_source_id(
 def _apply_post_filters(
     q,
     *,
-    source_id: int | None = None,
+    source_ids: list[int] | None = None,
     category_ids: list[int] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
 ):
-    if source_id is not None:
-        q = q.where(Post.source_id == source_id)
+    if source_ids:
+        q = q.where(Post.source_id.in_(source_ids))
     if category_ids:
         q = q.where(
             Post.source_id.in_(
@@ -112,7 +112,7 @@ async def list_posts(
     *,
     skip: int = 0,
     limit: int = 20,
-    source_id: int | None = None,
+    source_ids: list[int] | None = None,
     category_ids: list[int] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -126,7 +126,7 @@ async def list_posts(
     )
     q = _apply_post_filters(
         q,
-        source_id=source_id,
+        source_ids=source_ids,
         category_ids=category_ids,
         date_from=date_from,
         date_to=date_to,
@@ -140,7 +140,7 @@ async def list_posts(
 async def count_posts(
     db: AsyncSession,
     *,
-    source_id: int | None = None,
+    source_ids: list[int] | None = None,
     category_ids: list[int] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -149,7 +149,7 @@ async def count_posts(
     q = select(func.count()).select_from(Post).outerjoin(Source, Post.source_id == Source.id)
     q = _apply_post_filters(
         q,
-        source_id=source_id,
+        source_ids=source_ids,
         category_ids=category_ids,
         date_from=date_from,
         date_to=date_to,
