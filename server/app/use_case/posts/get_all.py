@@ -18,7 +18,6 @@ async def execute(
     source_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
-    search: str | None = None,
 ) -> PostListResponse:
     total = await count_posts(
         db,
