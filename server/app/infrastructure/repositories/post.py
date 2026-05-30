@@ -85,6 +85,7 @@ def _apply_post_filters(
     source_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    search: str | None = None,
 ):
     if source_id is not None:
         q = q.where(Post.source_id == source_id)
@@ -92,6 +93,8 @@ def _apply_post_filters(
         q = q.where(Post.published_at >= date_from)
     if date_to is not None:
         q = q.where(Post.published_at <= date_to)
+    if search and search.strip():
+        q = q.where(Post.text.ilike(f"%{search.strip()}%"))
     return q
 
 
@@ -103,13 +106,14 @@ async def list_posts(
     source_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    search: str | None = None,
 ) -> list[tuple[Post, str | None]]:
     q = (
         select(Post, Source.source_type)
         .outerjoin(Source, Post.source_id == Source.id)
         .order_by(Post.published_at.desc().nulls_last(), Post.id.desc())
     )
-    q = _apply_post_filters(q, source_id=source_id, date_from=date_from, date_to=date_to)
+    q = _apply_post_filters(q, source_id=source_id, date_from=date_from, date_to=date_to, search=search)
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     return list(result.all())
@@ -121,8 +125,9 @@ async def count_posts(
     source_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    search: str | None = None,
 ) -> int:
     q = select(func.count()).select_from(Post)
-    q = _apply_post_filters(q, source_id=source_id, date_from=date_from, date_to=date_to)
+    q = _apply_post_filters(q, source_id=source_id, date_from=date_from, date_to=date_to, search=search)
     result = await db.execute(q)
     return int(result.scalar_one() or 0)

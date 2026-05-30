@@ -14,15 +14,18 @@ async def execute(
     *,
     skip: int = 0,
     limit: int = 20,
+    search: str | None = None,
     source_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    search: str | None = None,
 ) -> PostListResponse:
     total = await count_posts(
         db,
         source_id=source_id,
         date_from=date_from,
         date_to=date_to,
+        search=search,
     )
     rows = await list_posts(
         db,
@@ -31,6 +34,7 @@ async def execute(
         source_id=source_id,
         date_from=date_from,
         date_to=date_to,
+        search=search,
     )
     items = []
     for post, source_type in rows:
