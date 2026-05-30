@@ -24,6 +24,7 @@ router = APIRouter(prefix="/api/v1/posts", tags=["Posts"])
 async def export_posts(
     fmt: str = Query("json", pattern="^(json|csv)$", description="Формат: json или csv"),
     source_id: int | None = Query(None, ge=1, description="Фильтр по источнику"),
+    category_ids: list[int] | None = Query(None, description="Фильтр по категориям источника"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
     q: str | None = Query(None, description="Поиск подстроки в тексте"),
@@ -33,6 +34,7 @@ async def export_posts(
         db,
         fmt=fmt,
         source_id=source_id,
+        category_ids=category_ids,
         date_from=date_from,
         date_to=date_to,
         search=q,
@@ -60,6 +62,7 @@ async def list_posts(
     limit: int = Query(20, ge=1, le=500),
     q: str | None = Query(None, description="Поиск подстроки в тексте поста"),
     source_id: int | None = Query(None, ge=1, description="ID источника"),
+    category_ids: list[int] | None = Query(None, description="Фильтр по категориям источника (можно несколько)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
     db: AsyncSession = Depends(get_session),
@@ -70,6 +73,7 @@ async def list_posts(
         limit=limit,
         search=q,
         source_id=source_id,
+        category_ids=category_ids,
         date_from=date_from,
         date_to=date_to,
     )

@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.db.orm.models import Post, Source
+from app.infrastructure.db.orm.models import Post, Source, source_category_link
 
 
 async def get_post_by_vk_id(db: AsyncSession, vk_post_id: str) -> Post | None:
@@ -83,12 +83,21 @@ def _apply_post_filters(
     q,
     *,
     source_id: int | None = None,
+    category_ids: list[int] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
 ):
     if source_id is not None:
         q = q.where(Post.source_id == source_id)
+    if category_ids:
+        q = q.where(
+            Post.source_id.in_(
+                select(source_category_link.c.source_id).where(
+                    source_category_link.c.category_id.in_(category_ids)
+                )
+            )
+        )
     if date_from is not None:
         q = q.where(Post.published_at >= date_from)
     if date_to is not None:
@@ -104,6 +113,7 @@ async def list_posts(
     skip: int = 0,
     limit: int = 20,
     source_id: int | None = None,
+    category_ids: list[int] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
@@ -114,7 +124,14 @@ async def list_posts(
         .outerjoin(Source, Post.source_id == Source.id)
         .order_by(Post.published_at.desc().nulls_last(), Post.id.desc())
     )
-    q = _apply_post_filters(q, source_id=source_id, date_from=date_from, date_to=date_to, search=search)
+    q = _apply_post_filters(
+        q,
+        source_id=source_id,
+        category_ids=category_ids,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    )
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     return list(result.all())
@@ -124,11 +141,19 @@ async def count_posts(
     db: AsyncSession,
     *,
     source_id: int | None = None,
+    category_ids: list[int] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
 ) -> int:
-    q = select(func.count()).select_from(Post)
-    q = _apply_post_filters(q, source_id=source_id, date_from=date_from, date_to=date_to, search=search)
+    q = select(func.count()).select_from(Post).outerjoin(Source, Post.source_id == Source.id)
+    q = _apply_post_filters(
+        q,
+        source_id=source_id,
+        category_ids=category_ids,
+        date_from=date_from,
+        date_to=date_to,
+        search=search,
+    )
     result = await db.execute(q)
     return int(result.scalar_one() or 0)

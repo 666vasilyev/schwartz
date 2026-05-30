@@ -29,12 +29,14 @@ async def execute(
     limit: int = 20,
     search: str | None = None,
     source_id: int | None = None,
+    category_ids: list[int] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> PostListResponse:
     total = await count_posts(
         db,
         source_id=source_id,
+        category_ids=category_ids,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -44,6 +46,7 @@ async def execute(
         skip=skip,
         limit=limit,
         source_id=source_id,
+        category_ids=category_ids,
         date_from=date_from,
         date_to=date_to,
         search=search,
