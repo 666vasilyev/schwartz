@@ -107,9 +107,10 @@ async def list_posts(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
-) -> list[tuple[Post, str | None]]:
+) -> list[tuple[Post, str | None, str | None]]:
+    """Returns list of (Post, source_type, source_url)."""
     q = (
-        select(Post, Source.source_type)
+        select(Post, Source.source_type, Source.url)
         .outerjoin(Source, Post.source_id == Source.id)
         .order_by(Post.published_at.desc().nulls_last(), Post.id.desc())
     )

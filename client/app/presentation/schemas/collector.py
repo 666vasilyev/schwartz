@@ -48,3 +48,19 @@ class RssCollectResponse(BaseModel):
     collected: int
     items: list[dict[str, Any]]
     mock: bool = False
+
+
+class TelegramCollectRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    url: str = Field(..., min_length=3, description="t.me/channel или @channel")
+    limit: int = Field(default=20, ge=1, le=200)
+
+
+class TelegramCollectResponse(BaseModel):
+    """Посты Telegram-канала для оркестрации."""
+
+    url: str
+    channel_title: str | None = None
+    collected: int
+    posts: list[dict[str, Any]]

@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # Совпадает с server.collector_shared_secret; пустой — не требовать Bearer к POST /collect*
     collector_shared_secret: str = ""
 
+    # Telegram MTProto (Telethon)
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    telegram_session_string: str = ""  # StringSession от Telethon
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"

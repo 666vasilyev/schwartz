@@ -10,11 +10,15 @@ from app.infrastructure.repositories.post import count_posts, list_posts
 from app.presentation.schemas.post import PostListResponse, PostRead
 
 
-def _build_post_url(post: Post, source_type: str | None) -> str | None:
+def _build_post_url(post: Post, source_type: str | None, source_url: str | None = None) -> str | None:
     if source_type == "vk" and post.owner_id and post.vk_post_id:
         return f"https://vk.com/wall{post.owner_id}_{post.vk_post_id}"
     if source_type == "rss" and post.external_id:
         return post.external_id if post.external_id.startswith("http") else None
+    if source_type == "telegram" and post.external_id and source_url:
+        # source_url is https://t.me/{username}
+        base = source_url.rstrip("/")
+        return f"{base}/{post.external_id}"
     return None
 
 
@@ -45,10 +49,10 @@ async def execute(
         search=search,
     )
     items = []
-    for post, source_type in rows:
+    for post, source_type, source_url in rows:
         data = PostRead.model_validate(post)
         data.source_type = source_type
-        data.url = _build_post_url(post, source_type)
+        data.url = _build_post_url(post, source_type, source_url)
         items.append(data)
     return PostListResponse(
         items=items,

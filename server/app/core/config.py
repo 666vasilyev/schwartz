@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     vk_api_version: str = "5.199"
     vk_api_base_url: str = "https://api.vk.com/method"
 
+    # Telegram MTProto (Telethon) — для сбора с Telegram-каналов
+    telegram_api_id: int = 0
+    telegram_api_hash: str = ""
+    telegram_session_string: str = ""  # StringSession от Telethon
+
     # HTTP collector (client): GET /collect на сервере вызывает POST …/collect/public
     collector_base_url: str = Field(
         default="http://127.0.0.1:8080",

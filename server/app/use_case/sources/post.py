@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, status
@@ -50,9 +51,47 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
     await _validate_category_ids(db, category_ids)
 
     try:
-        if (body.source_type and body.source_type.value == "rss") or (
-            not body.source_type and "vk.com" not in body.url
-        ):
+        url_lower = body.url.lower()
+        is_telegram = (body.source_type and body.source_type.value == "telegram") or (
+            not body.source_type
+            and ("t.me/" in url_lower or "telegram.me/" in url_lower)
+        )
+        is_rss = not is_telegram and (
+            (body.source_type and body.source_type.value == "rss")
+            or (not body.source_type and "vk.com" not in url_lower)
+        )
+
+        if is_telegram:
+            m = re.search(r"(?:t\.me|telegram\.me)/([A-Za-z0-9_]{5,})", body.url, re.IGNORECASE)
+            username = m.group(1) if m else body.url.lstrip("@").strip()
+            norm = f"https://t.me/{username}"
+            display_name = body.name if body.name and body.name.strip() else f"@{username}"
+            row = await add_source(
+                db,
+                url=norm,
+                name=display_name,
+                source_type="telegram",
+                username=username,
+                external_id=username,
+                description=body.description,
+                status=SourceStatus.ACTIVE.value,
+                priority=body.priority,
+                fetch_interval_minutes=body.fetch_interval_minutes,
+                auth_required=body.auth_required,
+                collection_policy=body.collection_policy,
+                content_policy=body.content_policy,
+                media_policy=body.media_policy,
+                language_hint=body.language_hint,
+                region_hint=body.region_hint,
+                topic_hint=body.topic_hint,
+                owner_id=body.owner_id,
+                category_ids=category_ids,
+            )
+            logger.info("source_registered_telegram", source_id=row.id, url=norm)
+            await _enqueue_initial_fetch(db, row.id)
+            return SourceRead.model_validate(row)
+
+        if is_rss:
             try:
                 norm = normalize_rss_feed_url(body.url)
             except ValueError as exc:

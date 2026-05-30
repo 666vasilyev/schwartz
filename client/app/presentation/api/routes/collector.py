@@ -8,10 +8,13 @@ from app.presentation.schemas.collector import (
     PublicCollectResponse,
     RssCollectRequest,
     RssCollectResponse,
+    TelegramCollectRequest,
+    TelegramCollectResponse,
 )
 from app.use_case.collect import post as collect_post
 from app.use_case.collect import post_public as collect_post_public
 from app.use_case.collect import post_rss as collect_post_rss
+from app.use_case.collect import post_telegram as collect_post_telegram
 
 router = APIRouter(tags=["Collect"])
 
@@ -44,3 +47,13 @@ async def collect_public(body: PublicCollectRequest) -> PublicCollectResponse:
 )
 async def collect_rss(body: RssCollectRequest) -> RssCollectResponse:
     return await collect_post_rss.execute(body)
+
+
+@router.post(
+    "/collect/telegram",
+    response_model=TelegramCollectResponse,
+    summary="Посты Telegram-канала по username/URL → JSON для оркестрации",
+    dependencies=[Depends(require_collector_auth)],
+)
+async def collect_telegram(body: TelegramCollectRequest) -> TelegramCollectResponse:
+    return await collect_post_telegram.execute(body)

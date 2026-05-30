@@ -19,6 +19,7 @@ from app.infrastructure.repositories import (
 from app.presentation.schemas.analysis import VkPostItem
 from app.presentation.schemas.collect import (
     CollectRssPublicItem,
+    CollectTelegramPostItem,
     CollectVkPublicPostItem,
     CollectVkPublicResponse,
 )
@@ -262,6 +263,104 @@ async def persist_rss_public_for_source(
         source_id=src.id,
         name=src.name,
         source="rss",
+        status=SourceStatus.ACTIVE.value,
+        url=url,
+        vk_owner_id=None,
+        posts=enriched,
+        total=len(enriched),
+        saved_to_db=saved,
+    )
+
+
+async def persist_telegram_for_source(
+    db: AsyncSession,
+    *,
+    source_id: int,
+    url: str,
+    channel_title: str | None,
+    posts: list[CollectTelegramPostItem],
+) -> CollectVkPublicResponse:
+    src = await get_source_by_id(db, source_id)
+    if src is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Источник не найден",
+        )
+    await update_source(db, src.id, error_message=None)
+    await db.commit()
+    await db.refresh(src)
+
+    enriched: list[VkPostItem] = []
+    saved = 0
+    try:
+        async with db.begin_nested():
+            for item in posts:
+                ext = item.external_id.strip()
+                if not ext:
+                    continue
+                pre = await get_post_by_source_and_external(db, src.id, ext)
+                post_row = await save_post(
+                    db,
+                    {
+                        "source_id": src.id,
+                        "external_id": ext,
+                        "text": item.text,
+                        "vk_post_id": None,
+                        "owner_id": None,
+                        "reactions": item.reactions or None,
+                        "payload": {
+                            "views": item.views,
+                            "comments": item.comments,
+                            "media_urls": item.media_urls,
+                            "is_forwarded": item.is_forwarded,
+                        },
+                        "published_at": _parse_iso_datetime(item.published_at),
+                    },
+                )
+                if pre is None:
+                    saved += 1
+                enriched.append(
+                    VkPostItem(
+                        db_post_id=post_row.id,
+                        vk_post_id=ext,
+                        owner_id=None,
+                        text=item.text,
+                    )
+                )
+    except Exception as exc:
+        await update_source(
+            db,
+            src.id,
+            status=SourceStatus.ERROR.value,
+            error_message=str(exc)[:2000],
+            last_error_at=utcnow(),
+            error_count=src.error_count + 1,
+        )
+        await db.commit()
+        raise
+
+    now = utcnow()
+    extra = dict(src.extra) if src.extra else {}
+    if channel_title:
+        extra["channel_title"] = channel_title
+    update_kwargs: dict = dict(
+        status=SourceStatus.ACTIVE.value,
+        last_run_at=now,
+        last_fetch_at=now,
+        last_success_at=now,
+        error_message=None,
+        error_count=0,
+        extra=extra,
+    )
+    await update_source(db, src.id, **update_kwargs)
+    await db.commit()
+    await db.refresh(src)
+
+    logger.info("collect_telegram_persisted", source_id=src.id, n=len(enriched))
+    return CollectVkPublicResponse(
+        source_id=src.id,
+        name=src.name,
+        source="telegram",
         status=SourceStatus.ACTIVE.value,
         url=url,
         vk_owner_id=None,

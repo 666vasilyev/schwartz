@@ -11,6 +11,7 @@ from app.infrastructure.db.orm.models import Source
 from app.infrastructure.repositories import get_source_by_id
 from app.presentation.schemas.collect import (
     CollectRssPublicItem,
+    CollectTelegramPostItem,
     CollectVkPublicPostItem,
     CollectVkPublicResponse,
 )
@@ -186,6 +187,69 @@ async def _collect_rss(
     )
 
 
+async def _collect_telegram(
+    db: AsyncSession,
+    *,
+    row: Source,
+    limit: int,
+) -> CollectVkPublicResponse:
+    settings = get_settings()
+    client_url = f"{settings.collector_base_url.rstrip('/')}/collect/telegram"
+    payload = {"url": row.url, "limit": limit}
+
+    hdr = dict(_collector_headers())
+    async with httpx.AsyncClient(timeout=180) as client:
+        try:
+            r = await client.post(client_url, json=payload, headers=hdr)
+        except httpx.RequestError as exc:
+            logger.error("collect_telegram_unreachable", url=client_url, error=str(exc))
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Collector недоступен: {exc!s}",
+            ) from exc
+
+    if r.status_code >= 400:
+        detail = r.text[:2000] if r.text else r.reason_phrase
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Collector ответил {r.status_code}: {detail}",
+        )
+
+    try:
+        data = r.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Некорректный JSON от collector: {exc!s}",
+        ) from exc
+
+    raw_posts = data.get("posts")
+    if not isinstance(raw_posts, list):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="В ответе collector нет поля posts",
+        )
+
+    try:
+        post_items = [CollectTelegramPostItem.model_validate(p) for p in raw_posts]
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Некорректные элементы posts: {exc!s}",
+        ) from exc
+
+    canonical_url = (data.get("url") or row.url).strip()
+    channel_title = data.get("channel_title")
+
+    return await persist.persist_telegram_for_source(
+        db,
+        source_id=row.id,
+        url=canonical_url,
+        channel_title=channel_title,
+        posts=post_items,
+    )
+
+
 async def execute(
     db: AsyncSession,
     *,
@@ -202,4 +266,6 @@ async def execute(
 
     if row.source_type == "rss":
         return await _collect_rss(db, row=row, limit=limit, use_mock=use_mock)
+    if row.source_type == "telegram":
+        return await _collect_telegram(db, row=row, limit=limit)
     return await _collect_vk_public(db, row=row, limit=limit, use_mock=use_mock)

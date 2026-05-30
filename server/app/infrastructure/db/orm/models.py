@@ -29,6 +29,7 @@ EMBEDDING_DIM = _settings.embedding_dim
 class SourceType(StrEnum):
     VK = "vk"
     RSS = "rss"
+    TELEGRAM = "telegram"
 
 
 class SourceStatus(StrEnum):

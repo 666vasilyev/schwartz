@@ -40,10 +40,10 @@ async def execute(
         search=search,
     )
     items = []
-    for post, source_type in rows:
+    for post, source_type, source_url in rows:
         data = PostRead.model_validate(post)
         data.source_type = source_type
-        data.url = _build_post_url(post, source_type)
+        data.url = _build_post_url(post, source_type, source_url)
         items.append(data)
 
     if fmt == "csv":
