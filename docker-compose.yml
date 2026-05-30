@@ -17,8 +17,11 @@ services:
     env_file: .env
     environment:
       COLLECTOR_BASE_URL: http://client:8080
+      HF_HOME: /cache/huggingface
     extra_hosts:
       - "host-gateway:host-gateway"
+    volumes:
+      - hf_cache:/cache/huggingface
     depends_on:
       db:
         condition: service_healthy
@@ -37,6 +40,9 @@ services:
         condition: service_healthy
       server:
         condition: service_started
+
+volumes:
+  hf_cache:
 
   nginx:
     image: nginx:alpine
