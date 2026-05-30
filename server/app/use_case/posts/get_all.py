@@ -32,8 +32,13 @@ async def execute(
         date_from=date_from,
         date_to=date_to,
     )
+    items = []
+    for post, source_type in rows:
+        data = PostRead.model_validate(post)
+        data.source_type = source_type
+        items.append(data)
     return PostListResponse(
-        items=[PostRead.model_validate(r) for r in rows],
+        items=items,
         total=total,
         skip=skip,
         limit=limit,

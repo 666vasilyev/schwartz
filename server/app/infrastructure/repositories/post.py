@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.db.orm.models import Post
+from app.infrastructure.db.orm.models import Post, Source
 
 
 async def get_post_by_vk_id(db: AsyncSession, vk_post_id: str) -> Post | None:
@@ -103,12 +103,16 @@ async def list_posts(
     source_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
-) -> list[Post]:
-    q = select(Post).order_by(Post.published_at.desc().nulls_last(), Post.id.desc())
+) -> list[tuple[Post, str | None]]:
+    q = (
+        select(Post, Source.source_type)
+        .outerjoin(Source, Post.source_id == Source.id)
+        .order_by(Post.published_at.desc().nulls_last(), Post.id.desc())
+    )
     q = _apply_post_filters(q, source_id=source_id, date_from=date_from, date_to=date_to)
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
-    return list(result.scalars().all())
+    return list(result.all())
 
 
 async def count_posts(
