@@ -4,6 +4,27 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class LemmaTextRequest(BaseModel):
+    text: str = Field(..., min_length=1, description="Текст для анализа")
+
+
+class LemmaAnalysisResult(BaseModel):
+    """Результат анализа текста по словарному методу (lemma_coefficients_RUS.csv)."""
+
+    schwartz_values: dict[str, float] = Field(
+        ...,
+        description=(
+            "10 измерений ценностной картины мира (нормировано 0.0–1.0, max→1.0). "
+            "Ключи совпадают с колонками CSV: Безопасность, Амбиозность и т.д."
+        ),
+    )
+    matched_count: int = Field(..., description="Число совпавших лемм в тексте")
+    matched_lemmas: list[str] = Field(
+        default_factory=list,
+        description="Список найденных лемм (для отладки)",
+    )
+
+
 class ContentAnalysisResult(BaseModel):
     """Результат анализа поста: деструктивность по тексту (LLM) + 10 измерений Шварца (LLM, только в рантайме/ответе)."""
     destruct_score: float = Field(..., ge=0.0)

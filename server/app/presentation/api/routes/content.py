@@ -6,11 +6,31 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.presentation.api.dependencies import get_session
-from app.presentation.schemas.analysis import SourceAnalyzeResponse, SourceStoredSchwartzResponse
+from app.presentation.schemas.analysis import (
+    LemmaAnalysisResult,
+    LemmaTextRequest,
+    SourceAnalyzeResponse,
+    SourceStoredSchwartzResponse,
+)
 from app.use_case.analyze import get_stored as analyze_get_stored
+from app.use_case.analyze import lemma as analyze_lemma
 from app.use_case.analyze import post as analyze_post
 
 router = APIRouter(prefix="/analyze", tags=["Content Analysis"])
+
+
+@router.post(
+    "/text/lemma",
+    response_model=LemmaAnalysisResult,
+    summary="Анализ текста по словарному методу (lemma_coefficients_RUS.csv)",
+    description=(
+        "Без вызова LLM. Ищет в тексте леммы из CSV-словаря, суммирует их веса "
+        "по 10 измерениям ценностной картины мира (модель Шварца в русской разметке), "
+        "нормирует результат (max → 1.0)."
+    ),
+)
+def analyze_text_lemma(body: LemmaTextRequest) -> LemmaAnalysisResult:
+    return analyze_lemma.execute(body.text)
 
 
 @router.get(
