@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.infrastructure.db.orm.models import Source
 from app.infrastructure.repositories import get_source_by_id
+from app.infrastructure.repositories.telegram_session import get_active_session
+from app.infrastructure.telegram.client import TelegramClientError, fetch_channel_posts
 from app.presentation.schemas.collect import (
     CollectRssPublicItem,
     CollectTelegramPostItem,
@@ -193,59 +195,39 @@ async def _collect_telegram(
     row: Source,
     limit: int,
 ) -> CollectVkPublicResponse:
-    settings = get_settings()
-    client_url = f"{settings.collector_base_url.rstrip('/')}/collect/telegram"
-    payload = {"url": row.url, "limit": limit}
-
-    hdr = dict(_collector_headers())
-    async with httpx.AsyncClient(timeout=180) as client:
-        try:
-            r = await client.post(client_url, json=payload, headers=hdr)
-        except httpx.RequestError as exc:
-            logger.error("collect_telegram_unreachable", url=client_url, error=str(exc))
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Collector недоступен: {exc!s}",
-            ) from exc
-
-    if r.status_code >= 400:
-        detail = r.text[:2000] if r.text else r.reason_phrase
+    """Сбор Telegram-канала напрямую через Telethon, используя сессию из БД."""
+    session = await get_active_session(db)
+    if session is None:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Collector ответил {r.status_code}: {detail}",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Нет активной Telegram-сессии. Добавьте через POST /api/v1/telegram/sessions",
         )
 
+    import re as _re
+    m = _re.search(r"(?:t\.me|telegram\.me)/([A-Za-z0-9_]{5,})", row.url, _re.IGNORECASE)
+    username = m.group(1) if m else row.url.lstrip("@").strip()
+
     try:
-        data = r.json()
+        raw_posts, _ = await fetch_channel_posts(session, username, limit=limit)
+    except TelegramClientError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Некорректный JSON от collector: {exc!s}",
+            detail=f"Ошибка Telegram: {exc}",
         ) from exc
 
-    raw_posts = data.get("posts")
-    if not isinstance(raw_posts, list):
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="В ответе collector нет поля posts",
-        )
-
-    try:
-        post_items = [CollectTelegramPostItem.model_validate(p) for p in raw_posts]
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Некорректные элементы posts: {exc!s}",
-        ) from exc
-
-    canonical_url = (data.get("url") or row.url).strip()
-    channel_title = data.get("channel_title")
+    post_items = [CollectTelegramPostItem.model_validate(p) for p in raw_posts]
+    canonical_url = f"https://t.me/{username}"
 
     return await persist.persist_telegram_for_source(
         db,
         source_id=row.id,
         url=canonical_url,
-        channel_title=channel_title,
+        channel_title=None,
         posts=post_items,
     )
 
