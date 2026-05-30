@@ -105,7 +105,8 @@ def score_text(text: str) -> tuple[dict[str, float], list[str]]:
     matched: list[str] = []
 
     for lemma, weights in _load_table():
-        if lemma in text_lower:
+        # \b — граница слова (работает с кириллицей через Unicode \w в Python re)
+        if re.search(r"\b" + re.escape(lemma) + r"\b", text_lower):
             matched.append(lemma)
             for col in CSV_COLUMNS:
                 totals[col] += weights[col]
