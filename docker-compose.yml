@@ -41,9 +41,6 @@ services:
       server:
         condition: service_started
 
-volumes:
-  hf_cache:
-
   nginx:
     image: nginx:alpine
     ports:
@@ -54,3 +51,6 @@ volumes:
       server:
         condition: service_started
     restart: unless-stopped
+
+volumes:
+  hf_cache:
