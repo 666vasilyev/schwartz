@@ -40,9 +40,30 @@ class SourceStatus(StrEnum):
 
 
 class SourceCategory(StrEnum):
+    """Оставлен для обратной совместимости. Новые категории — в таблице source_categories."""
     RU_SMI = "ru_smi"
     UA_SMI = "ua_smi"
     FOREIGN_SMI = "foreign_smi"
+
+
+class SourceCategoryModel(Base):
+    """Категория источника — управляемая сущность (CRUD через API)."""
+
+    __tablename__ = "source_categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    sources: Mapped[list["Source"]] = relationship(back_populates="source_category")
 
 
 class Source(Base):
@@ -108,8 +129,19 @@ class Source(Base):
     # User/org binding
     owner_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
-    # Source category for filtering
+    # Source category for filtering (legacy string field, kept for backward compat)
     category: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+
+    # FK to managed source_categories table
+    category_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("source_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    source_category: Mapped["SourceCategoryModel | None"] = relationship(
+        back_populates="sources"
+    )
 
     # Rich metadata fetched from the source (VK group info, RSS feed title, etc.)
     source_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)

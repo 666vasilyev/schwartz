@@ -1,0 +1,75 @@
+"""CRUD-репозиторий для source_categories."""
+from __future__ import annotations
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.infrastructure.db.orm.models import SourceCategoryModel
+
+
+async def get_category(db: AsyncSession, category_id: int) -> SourceCategoryModel | None:
+    res = await db.execute(
+        select(SourceCategoryModel).where(SourceCategoryModel.id == category_id)
+    )
+    return res.scalar_one_or_none()
+
+
+async def get_category_by_slug(db: AsyncSession, slug: str) -> SourceCategoryModel | None:
+    res = await db.execute(
+        select(SourceCategoryModel).where(SourceCategoryModel.slug == slug)
+    )
+    return res.scalar_one_or_none()
+
+
+async def list_categories(
+    db: AsyncSession, *, skip: int = 0, limit: int = 100
+) -> tuple[list[SourceCategoryModel], int]:
+    total_res = await db.execute(
+        select(func.count()).select_from(SourceCategoryModel)
+    )
+    total = int(total_res.scalar_one())
+    res = await db.execute(
+        select(SourceCategoryModel)
+        .order_by(SourceCategoryModel.name.asc())
+        .offset(skip)
+        .limit(limit)
+    )
+    return list(res.scalars().all()), total
+
+
+async def create_category(
+    db: AsyncSession,
+    *,
+    name: str,
+    slug: str,
+    description: str | None,
+) -> SourceCategoryModel:
+    obj = SourceCategoryModel(name=name, slug=slug, description=description)
+    db.add(obj)
+    await db.flush()
+    await db.refresh(obj)
+    return obj
+
+
+async def update_category(
+    db: AsyncSession,
+    obj: SourceCategoryModel,
+    *,
+    name: str | None = None,
+    slug: str | None = None,
+    description: str | None = None,
+) -> SourceCategoryModel:
+    if name is not None:
+        obj.name = name
+    if slug is not None:
+        obj.slug = slug
+    if description is not None:
+        obj.description = description
+    await db.flush()
+    await db.refresh(obj)
+    return obj
+
+
+async def delete_category(db: AsyncSession, obj: SourceCategoryModel) -> None:
+    await db.delete(obj)
+    await db.flush()

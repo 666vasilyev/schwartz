@@ -28,7 +28,8 @@ class SourceCreateRequest(BaseModel):
     region_hint: str | None = Field(None, max_length=64)
     topic_hint: str | None = Field(None, max_length=255)
     owner_id: int | None = None
-    category: SourceCategory | None = Field(None, description="Категория СМИ: ru_smi, ua_smi, foreign_smi")
+    category: SourceCategory | None = Field(None, description="Устаревшее поле. Используйте category_id")
+    category_id: int | None = Field(None, description="ID категории из /api/v1/source-categories")
 
     @field_validator("source")
     @classmethod
@@ -61,6 +62,7 @@ class SourceUpdateRequest(BaseModel):
     topic_hint: str | None = Field(None, max_length=255)
     owner_id: int | None = None
     category: SourceCategory | None = None
+    category_id: int | None = None
     # Legacy fields
     vk_owner_id: int | None = None
     error_message: str | None = None
@@ -113,6 +115,7 @@ class SourceRead(BaseModel):
     topic_hint: str | None = None
     owner_id: int | None = None
     category: SourceCategory | None = None
+    category_id: int | None = None
     source_metadata: dict | None = None
     # Legacy
     last_run_at: datetime | None = None

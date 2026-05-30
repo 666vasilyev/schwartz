@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.db.orm.models import SourceStatus, SourceType
 from app.infrastructure.feeds.rss_url import normalize_rss_feed_url
 from app.infrastructure.repositories import add_source
+from app.infrastructure.repositories.source_category import get_category
 from app.infrastructure.vk.vk_public_url import normalize_vk_url, public_path_segment_from_url
 from app.presentation.schemas.source import SourceCreateRequest, SourceRead
 from app.use_case.sources import vk_resolve
@@ -16,7 +17,19 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+async def _validate_category_id(db: AsyncSession, category_id: int | None) -> None:
+    if category_id is None:
+        return
+    obj = await get_category(db, category_id)
+    if not obj:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Категория с id={category_id} не найдена",
+        )
+
+
 async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
+    await _validate_category_id(db, body.category_id)
     if body.source == "rss":
         try:
             norm = normalize_rss_feed_url(body.url)
@@ -49,6 +62,7 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
             topic_hint=body.topic_hint,
             owner_id=body.owner_id,
             category=body.category.value if body.category else None,
+            category_id=body.category_id,
         )
         logger.info("source_registered_rss", source_id=row.id, url=norm)
         return SourceRead.model_validate(row)
@@ -82,6 +96,7 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
             topic_hint=body.topic_hint,
             owner_id=body.owner_id,
             category=body.category.value if body.category else None,
+            category_id=body.category_id,
         )
         logger.info(
             "source_registered",
