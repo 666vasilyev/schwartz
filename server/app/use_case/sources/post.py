@@ -61,7 +61,6 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
             region_hint=body.region_hint,
             topic_hint=body.topic_hint,
             owner_id=body.owner_id,
-            category=body.category.value if body.category else None,
             category_id=body.category_id,
         )
         logger.info("source_registered_rss", source_id=row.id, url=norm)
@@ -95,7 +94,6 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
             region_hint=body.region_hint,
             topic_hint=body.topic_hint,
             owner_id=body.owner_id,
-            category=body.category.value if body.category else None,
             category_id=body.category_id,
         )
         logger.info(

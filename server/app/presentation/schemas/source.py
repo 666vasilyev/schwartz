@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.infrastructure.db.orm.models import SourceCategory, SourceStatus, SourceType
+from app.infrastructure.db.orm.models import SourceStatus, SourceType
 
 
 # ── Request schemas ────────────────────────────────────────────────────────
@@ -28,7 +28,6 @@ class SourceCreateRequest(BaseModel):
     region_hint: str | None = Field(None, max_length=64)
     topic_hint: str | None = Field(None, max_length=255)
     owner_id: int | None = None
-    category: SourceCategory | None = Field(None, description="Устаревшее поле. Используйте category_id")
     category_id: int | None = Field(None, description="ID категории из /api/v1/source-categories")
 
     @field_validator("source")
@@ -61,7 +60,6 @@ class SourceUpdateRequest(BaseModel):
     region_hint: str | None = Field(None, max_length=64)
     topic_hint: str | None = Field(None, max_length=255)
     owner_id: int | None = None
-    category: SourceCategory | None = None
     category_id: int | None = None
     # Legacy fields
     vk_owner_id: int | None = None
@@ -114,7 +112,6 @@ class SourceRead(BaseModel):
     region_hint: str | None = None
     topic_hint: str | None = None
     owner_id: int | None = None
-    category: SourceCategory | None = None
     category_id: int | None = None
     source_metadata: dict | None = None
     # Legacy
