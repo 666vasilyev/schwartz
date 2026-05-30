@@ -5,9 +5,10 @@ from urllib.parse import urlparse
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.db.orm.models import SourceStatus
+from app.infrastructure.db.orm.models import JobType, SourceStatus, TriggerType
 from app.infrastructure.feeds.rss_url import normalize_rss_feed_url
 from app.infrastructure.repositories import add_source
+from app.infrastructure.repositories.collection_job import create_job
 from app.infrastructure.repositories.source_category import get_category
 from psycopg.errors import UniqueViolation
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +18,21 @@ from app.use_case.sources import vk_resolve
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+async def _enqueue_initial_fetch(db: AsyncSession, source_id: int) -> None:
+    try:
+        await create_job(
+            db,
+            job_type=JobType.MANUAL_FETCH.value,
+            source_id=source_id,
+            trigger_type=TriggerType.SYSTEM.value,
+            priority=5,
+            requested_limit=20,
+            params={"limit": 20},
+        )
+    except Exception as exc:
+        logger.warning("initial_fetch_enqueue_failed", source_id=source_id, error=str(exc))
 
 
 async def _validate_category_ids(db: AsyncSession, category_ids: list[int]) -> None:
@@ -67,6 +83,7 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
                 category_ids=category_ids,
             )
             logger.info("source_registered_rss", source_id=row.id, url=norm)
+            await _enqueue_initial_fetch(db, row.id)
             return SourceRead.model_validate(row)
 
         try:
@@ -102,6 +119,7 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
             category_ids=category_ids,
         )
         logger.info("source_registered", source_id=row.id, url=norm, vk_owner_id=vk_owner_id)
+        await _enqueue_initial_fetch(db, row.id)
         return SourceRead.model_validate(row)
 
     except IntegrityError as exc:
