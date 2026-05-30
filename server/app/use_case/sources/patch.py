@@ -4,6 +4,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.orm.models import SourceStatus
+
+_OMIT = object()
 from app.infrastructure.feeds.rss_url import normalize_rss_feed_url
 from app.infrastructure.repositories import add_audit_log, get_source_by_id, update_source
 from app.infrastructure.vk.vk_public_url import normalize_vk_url, public_path_segment_from_url
@@ -54,7 +56,9 @@ async def execute(
         st = patch["source_type"]
         patch["source_type"] = st.value if hasattr(st, "value") else st
 
-    updated = await update_source(db, source_id, **patch)
+    # category_ids handled separately (relationship, not column)
+    category_ids = patch.pop("category_ids", _OMIT)
+    updated = await update_source(db, source_id, category_ids=category_ids, **patch)
     assert updated is not None
 
     # Audit: schedule change

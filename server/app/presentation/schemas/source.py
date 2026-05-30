@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.infrastructure.db.orm.models import SourceStatus, SourceType
 
@@ -26,7 +26,7 @@ class SourceCreateRequest(BaseModel):
     region_hint: str | None = Field(None, max_length=64)
     topic_hint: str | None = Field(None, max_length=255)
     owner_id: int | None = None
-    category_id: int | None = Field(None, description="ID категории из /api/v1/source-categories")
+    category_ids: list[int] = Field(default_factory=list, description="ID категорий из /api/v1/source-categories")
 
 
 class SourceUpdateRequest(BaseModel):
@@ -49,7 +49,7 @@ class SourceUpdateRequest(BaseModel):
     region_hint: str | None = Field(None, max_length=64)
     topic_hint: str | None = Field(None, max_length=255)
     owner_id: int | None = None
-    category_id: int | None = None
+    category_ids: list[int] | None = None
     # Legacy fields
     vk_owner_id: int | None = None
     error_message: str | None = None
@@ -99,7 +99,7 @@ class SourceRead(BaseModel):
     region_hint: str | None = None
     topic_hint: str | None = None
     owner_id: int | None = None
-    category_id: int | None = None
+    category_ids: list[int] = Field(default_factory=list)
     source_metadata: dict | None = None
     # Legacy
     last_run_at: datetime | None = None
@@ -111,6 +111,19 @@ class SourceRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _extract_category_ids(cls, data: Any) -> Any:
+        # When building from ORM object, derive category_ids from categories relationship
+        if hasattr(data, "__tablename__"):  # SQLAlchemy ORM instance
+            cats = getattr(data, "categories", None) or []
+            return {
+                **{c: getattr(data, c, None) for c in data.__mapper__.column_attrs.keys()},
+                "category_ids": [c.id for c in cats],
+                "source_metadata": getattr(data, "source_metadata", None),
+            }
+        return data
 
 
 class SourceListResponse(BaseModel):

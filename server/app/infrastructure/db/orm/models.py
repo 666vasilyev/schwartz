@@ -10,11 +10,13 @@ from sqlalchemy import (
     Integer,
     JSON,
     String,
+    Table,
     Text,
     UniqueConstraint,
     func,
     text,
 )
+from sqlalchemy import Column
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from pgvector.sqlalchemy import Vector
 from app.core.config import get_settings
@@ -39,6 +41,15 @@ class SourceStatus(StrEnum):
 
 
 
+# Junction table: many-to-many between sources and source_categories
+source_category_link = Table(
+    "source_category_links",
+    Base.metadata,
+    Column("source_id", Integer, ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True),
+    Column("category_id", Integer, ForeignKey("source_categories.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class SourceCategoryModel(Base):
     """Категория источника — управляемая сущность (CRUD через API)."""
 
@@ -55,7 +66,9 @@ class SourceCategoryModel(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
-    sources: Mapped[list["Source"]] = relationship(back_populates="source_category")
+    sources: Mapped[list["Source"]] = relationship(
+        secondary=source_category_link, back_populates="categories"
+    )
 
 
 class Source(Base):
@@ -119,15 +132,9 @@ class Source(Base):
     # User/org binding
     owner_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
-    # FK to managed source_categories table
-    category_id: Mapped[int | None] = mapped_column(
-        Integer,
-        ForeignKey("source_categories.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    source_category: Mapped["SourceCategoryModel | None"] = relationship(
-        back_populates="sources"
+    # Many-to-many with source_categories
+    categories: Mapped[list["SourceCategoryModel"]] = relationship(
+        secondary=source_category_link, back_populates="sources"
     )
 
     # Rich metadata fetched from the source (VK group info, RSS feed title, etc.)

@@ -2,8 +2,9 @@ from datetime import datetime, timezone
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.infrastructure.db.orm.models import Source, SourceAuditLog, SourceStatus
+from app.infrastructure.db.orm.models import Source, SourceAuditLog, SourceCategoryModel, SourceStatus
 
 _OMIT = object()
 
@@ -13,6 +14,15 @@ def _utcnow() -> datetime:
 
 
 # ── Queries ────────────────────────────────────────────────────────────────
+
+
+async def _load_categories(db: AsyncSession, category_ids: list[int]) -> list[SourceCategoryModel]:
+    if not category_ids:
+        return []
+    res = await db.execute(
+        select(SourceCategoryModel).where(SourceCategoryModel.id.in_(category_ids))
+    )
+    return list(res.scalars().all())
 
 
 async def add_source(
@@ -36,7 +46,7 @@ async def add_source(
     region_hint: str | None = None,
     topic_hint: str | None = None,
     owner_id: int | None = None,
-    category_id: int | None = None,
+    category_ids: list[int] | None = None,
     extra: dict | None = None,
     source_metadata: dict | None = None,
 ) -> Source:
@@ -59,19 +69,22 @@ async def add_source(
         region_hint=region_hint,
         topic_hint=topic_hint,
         owner_id=owner_id,
-        category_id=category_id,
         extra=extra,
         source_metadata=source_metadata,
     )
+    if category_ids:
+        row.categories = await _load_categories(db, category_ids)
     db.add(row)
     await db.flush()
-    await db.refresh(row)
+    await db.refresh(row, ["categories"])
     return row
 
 
 async def get_source_by_id(db: AsyncSession, source_id: int) -> Source | None:
     result = await db.execute(
-        select(Source).where(Source.id == source_id, Source.deleted_at.is_(None))
+        select(Source)
+        .options(selectinload(Source.categories))
+        .where(Source.id == source_id, Source.deleted_at.is_(None))
     )
     return result.scalar_one_or_none()
 
@@ -102,7 +115,7 @@ async def update_source(
     region_hint: str | None | object = _OMIT,
     topic_hint: str | None | object = _OMIT,
     owner_id: int | None | object = _OMIT,
-    category_id: int | None | object = _OMIT,
+    category_ids: list[int] | None | object = _OMIT,
     last_run_at: datetime | None | object = _OMIT,
     error_message: str | None | object = _OMIT,
     vk_owner_id: int | None | object = _OMIT,
@@ -136,7 +149,6 @@ async def update_source(
         "region_hint": region_hint,
         "topic_hint": topic_hint,
         "owner_id": owner_id,
-        "category_id": category_id,
         "last_run_at": last_run_at,
         "error_message": error_message,
         "vk_owner_id": vk_owner_id,
@@ -147,8 +159,13 @@ async def update_source(
         if value is not _OMIT:
             setattr(row, attr, value)
 
+    if category_ids is not _OMIT and category_ids is not None:
+        row.categories = await _load_categories(db, category_ids)
+    elif category_ids == []:
+        row.categories = []
+
     await db.flush()
-    await db.refresh(row)
+    await db.refresh(row, ["categories"])
     return row
 
 
@@ -209,7 +226,7 @@ async def list_sources(
     owner_id: int | None = None,
     include_deleted: bool = False,
 ) -> list[Source]:
-    q = select(Source).order_by(Source.id.desc())
+    q = select(Source).options(selectinload(Source.categories)).order_by(Source.id.desc())
     if not include_deleted:
         q = q.where(Source.deleted_at.is_(None))
     if search and search.strip():
