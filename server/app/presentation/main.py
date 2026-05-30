@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.application.services.content.clustering_runner import runner as clustering_runner
+from app.application.services.content import embedder
 from app.application.services.scheduler.runner import scheduler
 from app.application.services.worker.runner import worker as collection_worker
 from app.core.config import get_settings
@@ -27,6 +28,15 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info(Events.WORKER_HEARTBEAT, message="Application startup", environment=settings.app_env)
+    if settings.clustering_enabled:
+        # Прогреваем модель заранее — чтобы первый запрос к /clusters/run
+        # не тратил 10+ секунд на загрузку и не гонялся с фоновым runner'ом.
+        # Не падаем при ошибке: модель подгрузится лениво при первом запросе.
+        import asyncio
+        try:
+            await asyncio.to_thread(embedder._get_model)
+        except Exception as exc:
+            logger.warning("embedder_warmup_failed", error=str(exc))
     collection_worker.start()
     scheduler.start()
     clustering_runner.start()
