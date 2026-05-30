@@ -446,6 +446,26 @@ class VkAccessToken(Base):
     )
 
 
+class TelegramSession(Base):
+    """Telethon MTProto сессия для сбора с Telegram-каналов."""
+
+    __tablename__ = "telegram_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    api_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    api_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    session_string: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ScheduleRuleType(StrEnum):
     SOURCE = "source"      # per source
     PLATFORM = "platform"  # all sources on a platform

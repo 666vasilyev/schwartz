@@ -17,6 +17,7 @@ from app.presentation.api.routes.collection import router as collection_router
 from app.presentation.api.routes.posts import router as posts_router
 from app.presentation.api.routes.schedule import router as schedule_router
 from app.presentation.api.routes.vk import router as vk_router
+from app.presentation.api.routes.telegram import router as telegram_router
 from app.presentation.middleware.request_logging import RequestLoggingMiddleware
 from app.utils.log_events import Events
 from app.utils.logger import configure_logging, get_logger
@@ -93,6 +94,7 @@ app.include_router(posts_router)
 app.include_router(collect.router)
 app.include_router(collection_router)
 app.include_router(vk_router)
+app.include_router(telegram_router)
 app.include_router(schedule_router)
 app.include_router(clusters_router)
 app.include_router(source_categories_router)
