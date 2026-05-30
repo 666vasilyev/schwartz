@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Any
+from urllib.parse import urlparse
 
+from app.core.config import get_settings
 from app.infrastructure.db.orm.models import TelegramSession
 
 
@@ -15,10 +17,40 @@ class NoActiveTelegramSession(TelegramClientError):
     pass
 
 
+def _build_proxy(proxy_url: str) -> tuple | None:
+    """
+    Convert proxy URL (e.g. socks5://user:pass@host:1080) to Telethon proxy tuple.
+    Telethon format: (socks.SOCKS5, host, port[, True, username, password])
+    """
+    if not proxy_url:
+        return None
+    try:
+        import socks  # PySocks
+    except ImportError:
+        return None
+
+    p = urlparse(proxy_url)
+    scheme = (p.scheme or "").lower()
+    host = p.hostname or "127.0.0.1"
+    port = p.port or 1080
+    username = p.username or None
+    password = p.password or None
+
+    proxy_type = socks.SOCKS5
+    if scheme in ("socks4", "socks4a"):
+        proxy_type = socks.SOCKS4
+    elif scheme in ("http", "https"):
+        proxy_type = socks.HTTP
+
+    if username:
+        return (proxy_type, host, port, True, username, password)
+    return (proxy_type, host, port)
+
+
 @asynccontextmanager
 async def telegram_client(session: TelegramSession) -> AsyncGenerator[Any, None]:
     """
-    Yields a connected Telethon TelegramClient.
+    Yields a connected Telethon TelegramClient routed through llm_proxy.
     Usage:
         async with telegram_client(session) as client:
             entity = await client.get_entity(...)
@@ -31,10 +63,14 @@ async def telegram_client(session: TelegramSession) -> AsyncGenerator[Any, None]
             "telethon не установлен. Добавьте telethon в requirements.txt"
         ) from exc
 
+    settings = get_settings()
+    proxy = _build_proxy(settings.llm_proxy)
+
     client = TelegramClient(
         StringSession(session.session_string),
         session.api_id,
         session.api_hash,
+        proxy=proxy,
     )
     await client.connect()
     try:
