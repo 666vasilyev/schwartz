@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # Совпадает с server.collector_shared_secret; пустой — не требовать Bearer к POST /collect*
     collector_shared_secret: str = ""
 
+    # Прокси (тот же что у LLM-сервера, например socks5://host-gateway:1080)
+    llm_proxy: str = ""
+
     # Telegram MTProto (Telethon)
     telegram_api_id: int = 0
     telegram_api_hash: str = ""

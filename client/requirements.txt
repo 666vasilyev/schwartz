@@ -8,5 +8,6 @@ pydantic-settings>=2.0
 structlog>=24.0
 feedparser>=6.0
 telethon>=1.36
+PySocks>=1.7
 sqlalchemy[asyncio]>=2.0
 psycopg[binary]>=3.0
