@@ -10,7 +10,7 @@ from app.infrastructure.db.orm.models import JobType, SourceStatus, TriggerType
 from app.infrastructure.feeds.rss_url import normalize_rss_feed_url
 from app.infrastructure.repositories import add_source
 from app.infrastructure.repositories.collection_job import create_job
-from app.infrastructure.repositories.source_category import get_category
+from app.infrastructure.repositories.source_category import get_category  # noqa: F401 (used below)
 from psycopg.errors import UniqueViolation
 from sqlalchemy.exc import IntegrityError
 from app.infrastructure.vk.vk_public_url import normalize_vk_url, public_path_segment_from_url
@@ -36,19 +36,19 @@ async def _enqueue_initial_fetch(db: AsyncSession, source_id: int) -> None:
         logger.warning("initial_fetch_enqueue_failed", source_id=source_id, error=str(exc))
 
 
-async def _validate_category_ids(db: AsyncSession, category_ids: list[int]) -> None:
-    for cid in category_ids:
-        obj = await get_category(db, cid)
+async def _validate_category_names(db: AsyncSession, category_names: list[str]) -> None:
+    for name in category_names:
+        obj = await get_category(db, name)
         if not obj:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Категория с id={cid} не найдена",
+                detail=f"Категория '{name}' не найдена",
             )
 
 
 async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
-    category_ids = body.category_ids or []
-    await _validate_category_ids(db, category_ids)
+    category_names = body.category_names or []
+    await _validate_category_names(db, category_names)
 
     try:
         url_lower = body.url.lower()
@@ -85,7 +85,7 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
                 region_hint=body.region_hint,
                 topic_hint=body.topic_hint,
                 owner_id=body.owner_id,
-                category_ids=category_ids,
+                category_names=category_names,
             )
             logger.info("source_registered_telegram", source_id=row.id, url=norm)
             await _enqueue_initial_fetch(db, row.id)
@@ -119,7 +119,7 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
                 region_hint=body.region_hint,
                 topic_hint=body.topic_hint,
                 owner_id=body.owner_id,
-                category_ids=category_ids,
+                category_names=category_names,
             )
             logger.info("source_registered_rss", source_id=row.id, url=norm)
             await _enqueue_initial_fetch(db, row.id)

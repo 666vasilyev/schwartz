@@ -18,7 +18,6 @@ class SourceCategoryUpdateRequest(BaseModel):
 class SourceCategoryRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
     name: str
     description: str | None = None
     created_at: datetime

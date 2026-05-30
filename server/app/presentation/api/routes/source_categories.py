@@ -45,38 +45,38 @@ async def list_categories(
 
 
 @router.get(
-    "/{category_id}",
+    "/{category_name}",
     response_model=SourceCategoryRead,
-    summary="Категория по ID",
+    summary="Категория по имени",
 )
 async def get_category(
-    category_id: int = Path(..., ge=1),
+    category_name: str = Path(..., min_length=1),
     db: AsyncSession = Depends(get_session),
 ) -> SourceCategoryRead:
-    return await categories_uc.get_by_id(db, category_id)
+    return await categories_uc.get_by_name(db, category_name)
 
 
 @router.patch(
-    "/{category_id}",
+    "/{category_name}",
     response_model=SourceCategoryRead,
     summary="Обновить категорию",
 )
 async def patch_category(
-    category_id: int = Path(..., ge=1),
+    category_name: str = Path(..., min_length=1),
     body: SourceCategoryUpdateRequest = ...,
     db: AsyncSession = Depends(get_session),
 ) -> SourceCategoryRead:
-    return await categories_uc.patch(db, category_id, body)
+    return await categories_uc.patch(db, category_name, body)
 
 
 @router.delete(
-    "/{category_id}",
+    "/{category_name}",
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Удалить категорию",
 )
 async def delete_category(
-    category_id: int = Path(..., ge=1),
+    category_name: str = Path(..., min_length=1),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
-    await categories_uc.delete(db, category_id)
+    await categories_uc.delete(db, category_name)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

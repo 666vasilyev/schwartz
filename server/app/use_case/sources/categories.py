@@ -8,7 +8,6 @@ from app.infrastructure.repositories.source_category import (
     create_category,
     delete_category,
     get_category,
-    get_category_by_name,
     list_categories,
     update_category,
 )
@@ -21,7 +20,7 @@ from app.presentation.schemas.source_category import (
 
 
 async def create(db: AsyncSession, body: SourceCategoryCreateRequest) -> SourceCategoryRead:
-    existing = await get_category_by_name(db, body.name)
+    existing = await get_category(db, body.name)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -44,21 +43,21 @@ async def list_all(
     )
 
 
-async def get_by_id(db: AsyncSession, category_id: int) -> SourceCategoryRead:
-    obj = await get_category(db, category_id)
+async def get_by_name(db: AsyncSession, category_name: str) -> SourceCategoryRead:
+    obj = await get_category(db, category_name)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Категория не найдена")
     return SourceCategoryRead.model_validate(obj)
 
 
 async def patch(
-    db: AsyncSession, category_id: int, body: SourceCategoryUpdateRequest
+    db: AsyncSession, category_name: str, body: SourceCategoryUpdateRequest
 ) -> SourceCategoryRead:
-    obj = await get_category(db, category_id)
+    obj = await get_category(db, category_name)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Категория не найдена")
     if body.name and body.name != obj.name:
-        conflict = await get_category_by_name(db, body.name)
+        conflict = await get_category(db, body.name)
         if conflict:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -69,8 +68,8 @@ async def patch(
     return SourceCategoryRead.model_validate(obj)
 
 
-async def delete(db: AsyncSession, category_id: int) -> None:
-    obj = await get_category(db, category_id)
+async def delete(db: AsyncSession, category_name: str) -> None:
+    obj = await get_category(db, category_name)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Категория не найдена")
     await delete_category(db, obj)

@@ -83,18 +83,18 @@ def _apply_post_filters(
     q,
     *,
     source_ids: list[int] | None = None,
-    category_ids: list[int] | None = None,
+    category_names: list[str] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
 ):
     if source_ids:
         q = q.where(Post.source_id.in_(source_ids))
-    if category_ids:
+    if category_names:
         q = q.where(
             Post.source_id.in_(
                 select(source_category_link.c.source_id).where(
-                    source_category_link.c.category_id.in_(category_ids)
+                    source_category_link.c.category_name.in_(category_names)
                 )
             )
         )
@@ -113,7 +113,7 @@ async def list_posts(
     skip: int = 0,
     limit: int = 20,
     source_ids: list[int] | None = None,
-    category_ids: list[int] | None = None,
+    category_names: list[str] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
@@ -127,7 +127,7 @@ async def list_posts(
     q = _apply_post_filters(
         q,
         source_ids=source_ids,
-        category_ids=category_ids,
+        category_names=category_names,
         date_from=date_from,
         date_to=date_to,
         search=search,
@@ -141,7 +141,7 @@ async def count_posts(
     db: AsyncSession,
     *,
     source_ids: list[int] | None = None,
-    category_ids: list[int] | None = None,
+    category_names: list[str] | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
@@ -150,7 +150,7 @@ async def count_posts(
     q = _apply_post_filters(
         q,
         source_ids=source_ids,
-        category_ids=category_ids,
+        category_names=category_names,
         date_from=date_from,
         date_to=date_to,
         search=search,

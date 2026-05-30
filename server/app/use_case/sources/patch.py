@@ -56,9 +56,9 @@ async def execute(
         st = patch["source_type"]
         patch["source_type"] = st.value if hasattr(st, "value") else st
 
-    # category_ids handled separately (relationship, not column)
-    category_ids = patch.pop("category_ids", _OMIT)
-    updated = await update_source(db, source_id, category_ids=category_ids, **patch)
+    # category_names handled separately (relationship, not column)
+    category_names = patch.pop("category_names", _OMIT)
+    updated = await update_source(db, source_id, category_names=category_names, **patch)
     assert updated is not None
 
     # Audit: schedule change

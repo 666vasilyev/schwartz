@@ -16,11 +16,11 @@ def _utcnow() -> datetime:
 # ── Queries ────────────────────────────────────────────────────────────────
 
 
-async def _load_categories(db: AsyncSession, category_ids: list[int]) -> list[SourceCategoryModel]:
-    if not category_ids:
+async def _load_categories(db: AsyncSession, category_names: list[str]) -> list[SourceCategoryModel]:
+    if not category_names:
         return []
     res = await db.execute(
-        select(SourceCategoryModel).where(SourceCategoryModel.id.in_(category_ids))
+        select(SourceCategoryModel).where(SourceCategoryModel.name.in_(category_names))
     )
     return list(res.scalars().all())
 
@@ -46,7 +46,7 @@ async def add_source(
     region_hint: str | None = None,
     topic_hint: str | None = None,
     owner_id: int | None = None,
-    category_ids: list[int] | None = None,
+    category_names: list[str] | None = None,
     extra: dict | None = None,
     source_metadata: dict | None = None,
 ) -> Source:
@@ -72,8 +72,8 @@ async def add_source(
         extra=extra,
         source_metadata=source_metadata,
     )
-    if category_ids:
-        row.categories = await _load_categories(db, category_ids)
+    if category_names:
+        row.categories = await _load_categories(db, category_names)
     db.add(row)
     await db.flush()
     await db.refresh(row, ["categories"])
@@ -115,7 +115,7 @@ async def update_source(
     region_hint: str | None | object = _OMIT,
     topic_hint: str | None | object = _OMIT,
     owner_id: int | None | object = _OMIT,
-    category_ids: list[int] | None | object = _OMIT,
+    category_names: list[str] | None | object = _OMIT,
     last_run_at: datetime | None | object = _OMIT,
     error_message: str | None | object = _OMIT,
     vk_owner_id: int | None | object = _OMIT,
@@ -159,9 +159,9 @@ async def update_source(
         if value is not _OMIT:
             setattr(row, attr, value)
 
-    if category_ids is not _OMIT and category_ids is not None:
-        row.categories = await _load_categories(db, category_ids)
-    elif category_ids == []:
+    if category_names is not _OMIT and category_names is not None:
+        row.categories = await _load_categories(db, category_names)
+    elif category_names == []:
         row.categories = []
 
     await db.flush()

@@ -26,7 +26,7 @@ class SourceCreateRequest(BaseModel):
     region_hint: str | None = Field(None, max_length=64)
     topic_hint: str | None = Field(None, max_length=255)
     owner_id: int | None = None
-    category_ids: list[int] = Field(default_factory=list, description="ID категорий из /api/v1/source-categories")
+    category_names: list[str] = Field(default_factory=list, description="Имена категорий из /api/v1/source-categories")
 
 
 class SourceUpdateRequest(BaseModel):
@@ -49,7 +49,7 @@ class SourceUpdateRequest(BaseModel):
     region_hint: str | None = Field(None, max_length=64)
     topic_hint: str | None = Field(None, max_length=255)
     owner_id: int | None = None
-    category_ids: list[int] | None = None
+    category_names: list[str] | None = None
     # Legacy fields
     vk_owner_id: int | None = None
     error_message: str | None = None
@@ -99,7 +99,7 @@ class SourceRead(BaseModel):
     region_hint: str | None = None
     topic_hint: str | None = None
     owner_id: int | None = None
-    category_ids: list[int] = Field(default_factory=list)
+    category_names: list[str] = Field(default_factory=list)
     source_metadata: dict | None = None
     # Legacy
     last_run_at: datetime | None = None
@@ -120,7 +120,7 @@ class SourceRead(BaseModel):
             cats = getattr(data, "categories", None) or []
             return {
                 **{c: getattr(data, c, None) for c in data.__mapper__.column_attrs.keys()},
-                "category_ids": [c.id for c in cats],
+                "category_names": [c.name for c in cats],
                 "source_metadata": getattr(data, "source_metadata", None),
             }
         return data

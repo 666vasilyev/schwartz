@@ -42,22 +42,21 @@ class SourceStatus(StrEnum):
 
 
 
-# Junction table: many-to-many between sources and source_categories
+# Junction table: many-to-many between sources and source_categories (keyed by name)
 source_category_link = Table(
     "source_category_links",
     Base.metadata,
     Column("source_id", Integer, ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True),
-    Column("category_id", Integer, ForeignKey("source_categories.id", ondelete="CASCADE"), primary_key=True),
+    Column("category_name", String(255), ForeignKey("source_categories.name", ondelete="CASCADE", onupdate="CASCADE"), primary_key=True),
 )
 
 
 class SourceCategoryModel(Base):
-    """Категория источника — управляемая сущность (CRUD через API)."""
+    """Категория источника — управляемая сущность (CRUD через API). PK = name."""
 
     __tablename__ = "source_categories"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(String(255), primary_key=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(

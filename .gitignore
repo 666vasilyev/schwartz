@@ -74,3 +74,5 @@ CLAUDE.md
 .claude/
 
 server\app\utils\tg_session_exporter.py
+
+*.csv

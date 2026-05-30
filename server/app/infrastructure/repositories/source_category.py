@@ -7,14 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.db.orm.models import SourceCategoryModel
 
 
-async def get_category(db: AsyncSession, category_id: int) -> SourceCategoryModel | None:
-    res = await db.execute(
-        select(SourceCategoryModel).where(SourceCategoryModel.id == category_id)
-    )
-    return res.scalar_one_or_none()
-
-
-async def get_category_by_name(db: AsyncSession, name: str) -> SourceCategoryModel | None:
+async def get_category(db: AsyncSession, name: str) -> SourceCategoryModel | None:
     res = await db.execute(
         select(SourceCategoryModel).where(SourceCategoryModel.name == name)
     )
