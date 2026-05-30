@@ -8,7 +8,7 @@ from app.infrastructure.repositories.source_category import (
     create_category,
     delete_category,
     get_category,
-    get_category_by_slug,
+    get_category_by_name,
     list_categories,
     update_category,
 )
@@ -21,13 +21,13 @@ from app.presentation.schemas.source_category import (
 
 
 async def create(db: AsyncSession, body: SourceCategoryCreateRequest) -> SourceCategoryRead:
-    existing = await get_category_by_slug(db, body.slug)
+    existing = await get_category_by_name(db, body.name)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Категория со slug '{body.slug}' уже существует",
+            detail=f"Категория с именем '{body.name}' уже существует",
         )
-    obj = await create_category(db, name=body.name, slug=body.slug, description=body.description)
+    obj = await create_category(db, name=body.name, description=body.description)
     await db.commit()
     return SourceCategoryRead.model_validate(obj)
 
@@ -57,16 +57,14 @@ async def patch(
     obj = await get_category(db, category_id)
     if not obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Категория не найдена")
-    if body.slug and body.slug != obj.slug:
-        conflict = await get_category_by_slug(db, body.slug)
+    if body.name and body.name != obj.name:
+        conflict = await get_category_by_name(db, body.name)
         if conflict:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Категория со slug '{body.slug}' уже существует",
+                detail=f"Категория с именем '{body.name}' уже существует",
             )
-    obj = await update_category(
-        db, obj, name=body.name, slug=body.slug, description=body.description
-    )
+    obj = await update_category(db, obj, name=body.name, description=body.description)
     await db.commit()
     return SourceCategoryRead.model_validate(obj)
 

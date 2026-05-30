@@ -17,8 +17,7 @@ def upgrade() -> None:
     op.create_table(
         "source_categories",
         sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("name", sa.String(255), nullable=False),
-        sa.Column("slug", sa.String(64), nullable=False),
+        sa.Column("name", sa.String(255), nullable=False, unique=True),
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column(
             "created_at",
@@ -33,8 +32,6 @@ def upgrade() -> None:
             nullable=False,
         ),
     )
-    op.create_index("ix_source_categories_slug", "source_categories", ["slug"], unique=True)
-
     op.add_column(
         "sources",
         sa.Column("category_id", sa.Integer(), nullable=True),
@@ -54,5 +51,4 @@ def downgrade() -> None:
     op.drop_index("ix_sources_category_id", table_name="sources")
     op.drop_constraint("fk_sources_category_id", "sources", type_="foreignkey")
     op.drop_column("sources", "category_id")
-    op.drop_index("ix_source_categories_slug", table_name="source_categories")
     op.drop_table("source_categories")

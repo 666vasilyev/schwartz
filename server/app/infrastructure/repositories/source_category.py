@@ -14,9 +14,9 @@ async def get_category(db: AsyncSession, category_id: int) -> SourceCategoryMode
     return res.scalar_one_or_none()
 
 
-async def get_category_by_slug(db: AsyncSession, slug: str) -> SourceCategoryModel | None:
+async def get_category_by_name(db: AsyncSession, name: str) -> SourceCategoryModel | None:
     res = await db.execute(
-        select(SourceCategoryModel).where(SourceCategoryModel.slug == slug)
+        select(SourceCategoryModel).where(SourceCategoryModel.name == name)
     )
     return res.scalar_one_or_none()
 
@@ -41,10 +41,9 @@ async def create_category(
     db: AsyncSession,
     *,
     name: str,
-    slug: str,
     description: str | None,
 ) -> SourceCategoryModel:
-    obj = SourceCategoryModel(name=name, slug=slug, description=description)
+    obj = SourceCategoryModel(name=name, description=description)
     db.add(obj)
     await db.flush()
     await db.refresh(obj)
@@ -56,13 +55,10 @@ async def update_category(
     obj: SourceCategoryModel,
     *,
     name: str | None = None,
-    slug: str | None = None,
     description: str | None = None,
 ) -> SourceCategoryModel:
     if name is not None:
         obj.name = name
-    if slug is not None:
-        obj.slug = slug
     if description is not None:
         obj.description = description
     await db.flush()
