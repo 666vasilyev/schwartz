@@ -2,8 +2,8 @@ import json
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
 
-API_ID = 12345678
-API_HASH = "your_api_hash"
+API_ID = 1506593
+API_HASH = "74b07d38a04337651c59ca46bb3e9ec6"
 
 with TelegramClient(StringSession(), API_ID, API_HASH) as client:
     session_string = client.session.save()

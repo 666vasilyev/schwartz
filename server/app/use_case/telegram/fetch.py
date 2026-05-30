@@ -1,6 +1,7 @@
 """Manual fetch use cases for Telegram sources."""
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timezone
 
@@ -61,7 +62,12 @@ async def resolve(db: AsyncSession, body: TelegramResolveRequest) -> TelegramRes
     session = await _require_session(db)
     username = _username_from_url(body.url)
     try:
-        info = await resolve_channel(session, username)
+        info = await asyncio.wait_for(resolve_channel(session, username), timeout=60)
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Telegram не ответил за 60 секунд",
+        ) from exc
     except TelegramClientError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     except Exception as exc:
@@ -85,9 +91,15 @@ async def fetch(db: AsyncSession, source_id: int, body: TelegramFetchRequest) ->
     min_id = int(meta.get("last_tg_message_id", 0)) if not body.force_full else 0
 
     try:
-        posts, max_id = await fetch_channel_posts(
-            session, username, limit=body.limit, min_id=min_id
+        posts, max_id = await asyncio.wait_for(
+            fetch_channel_posts(session, username, limit=body.limit, min_id=min_id),
+            timeout=150,
         )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Telegram не ответил за 150 секунд",
+        ) from exc
     except TelegramClientError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     except Exception as exc:
@@ -152,7 +164,15 @@ async def fetch_preview(
     username = _username_from_url(src.url)
 
     try:
-        posts, _ = await fetch_channel_posts(session, username, limit=body.limit, min_id=0)
+        posts, _ = await asyncio.wait_for(
+            fetch_channel_posts(session, username, limit=body.limit, min_id=0),
+            timeout=150,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Telegram не ответил за 150 секунд",
+        ) from exc
     except TelegramClientError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     except Exception as exc:
