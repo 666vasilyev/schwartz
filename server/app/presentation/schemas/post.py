@@ -32,9 +32,8 @@ class PostRead(BaseModel):
     id: int
     source_id: int | None = None
     source_type: str | None = None
+    url: str | None = None
     external_id: str | None = None
-    vk_post_id: str | None = None
-    owner_id: int | None = None
     text: str | None = None
     published_at: datetime | None = None
     is_ad: bool = False
