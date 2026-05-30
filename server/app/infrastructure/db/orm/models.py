@@ -128,9 +128,6 @@ class Source(Base):
     # User/org binding
     owner_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
-    # Source category for filtering (legacy string field, kept for backward compat)
-    category: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
-
     # FK to managed source_categories table
     category_id: Mapped[int | None] = mapped_column(
         Integer,
