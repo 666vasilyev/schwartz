@@ -17,14 +17,12 @@ async def execute(
     source_id: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
-    category: str | None = None,
 ) -> PostListResponse:
     total = await count_posts(
         db,
         source_id=source_id,
         date_from=date_from,
         date_to=date_to,
-        category=category,
     )
     rows = await list_posts(
         db,
@@ -33,7 +31,6 @@ async def execute(
         source_id=source_id,
         date_from=date_from,
         date_to=date_to,
-        category=category,
     )
     return PostListResponse(
         items=[PostRead.model_validate(r) for r in rows],
