@@ -8,7 +8,7 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 settings = get_settings()
 
-_http_client = httpx.AsyncClient(proxy=settings.llm_proxy) if settings.llm_proxy else None
+_http_client = httpx.AsyncClient(proxy=settings.proxy) if settings.proxy else None
 _client = AsyncOpenAI(api_key=settings.openai_api_key, http_client=_http_client)
 
 

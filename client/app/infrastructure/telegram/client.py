@@ -49,7 +49,7 @@ async def telegram_client(
     session_string: str,
 ) -> AsyncGenerator[Any, None]:
     """
-    Yields a connected Telethon TelegramClient routed through llm_proxy.
+    Yields a connected Telethon TelegramClient routed through proxy.
 
     Usage:
         async with telegram_client(api_id, api_hash, session_string) as client:
@@ -64,7 +64,7 @@ async def telegram_client(
         ) from exc
 
     settings = get_settings()
-    proxy = _build_proxy(settings.llm_proxy)
+    proxy = _build_proxy(settings.proxy)
 
     client = TelegramClient(
         StringSession(session_string),
