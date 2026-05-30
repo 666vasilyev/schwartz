@@ -20,7 +20,7 @@ async def execute(db: AsyncSession, source_id: int) -> SourceRefreshMetadataResp
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Источник не найден")
 
-    platform = (row.platform or row.source or "").lower()
+    platform = (row.source_type or "").lower()
 
     if platform == "rss":
         meta = await _fetch_rss_metadata(row.url)

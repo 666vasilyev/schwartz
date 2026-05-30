@@ -46,7 +46,7 @@ async def get_metadata(db: AsyncSession, source_id: int) -> VkGroupMetadata:
     src = await get_source_by_id(db, source_id)
     if src is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Источник не найден")
-    if src.platform != "vk":
+    if src.source_type != "vk":
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Источник не является VK-группой")
 
     meta = src.source_metadata or {}
@@ -73,7 +73,7 @@ async def refresh_metadata(db: AsyncSession, source_id: int) -> VkMetadataRefres
     src = await get_source_by_id(db, source_id)
     if src is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Источник не найден")
-    if src.platform != "vk":
+    if src.source_type != "vk":
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Источник не является VK-группой")
 
     owner_id = src.vk_owner_id

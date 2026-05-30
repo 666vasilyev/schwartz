@@ -13,7 +13,7 @@ from app.presentation.schemas.source import SourceRead
 _EXPORT_LIMIT = 10_000
 
 _CSV_FIELDS = [
-    "id", "name", "url", "source", "source_type", "platform", "username",
+    "id", "name", "url", "source_type", "username",
     "external_id", "description", "status", "priority", "fetch_interval_minutes",
     "language_hint", "region_hint", "topic_hint", "owner_id",
     "error_count", "auth_required", "created_at", "updated_at",
@@ -25,14 +25,12 @@ async def execute(
     *,
     fmt: str = "json",
     status_filter: str | None = None,
-    platform_filter: str | None = None,
 ) -> Response:
     rows = await list_sources(
         db,
         skip=0,
         limit=_EXPORT_LIMIT,
         status=status_filter,
-        platform=platform_filter,
     )
     items = [SourceRead.model_validate(r) for r in rows]
 

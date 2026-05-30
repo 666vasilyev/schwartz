@@ -29,7 +29,7 @@ async def execute(
             detail=f"Source id={source_id} not found",
         )
 
-    if src.source == "rss":
+    if src.source_type == "rss":
         oid = None
         all_rows = await list_posts_by_source_id(db, source_id)
     else:
@@ -47,7 +47,7 @@ async def execute(
     logger.info(
         "analyze_source_request",
         source_id=source_id,
-        source_kind=src.source,
+        source_kind=src.source_type,
         vk_owner_id=oid,
         posts_total=n_total,
         posts_in_run=len(rows),

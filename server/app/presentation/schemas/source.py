@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.infrastructure.db.orm.models import SourceStatus, SourceType
 
@@ -14,9 +14,7 @@ from app.infrastructure.db.orm.models import SourceStatus, SourceType
 class SourceCreateRequest(BaseModel):
     url: str = Field(..., min_length=4, description="Ссылка на паблик VK или на RSS/Atom")
     name: str | None = Field(None, max_length=512)
-    source_type: SourceType | None = Field(None, description="Тип источника")
-    # Backward-compat field; if set, used to derive source_type/platform
-    source: str = Field(default="vk", description="vk или rss (legacy)")
+    source_type: SourceType | None = Field(None, description="Тип источника: vk или rss")
     description: str | None = None
     priority: int = Field(default=0, ge=0)
     fetch_interval_minutes: int = Field(default=60, ge=1)
@@ -30,14 +28,6 @@ class SourceCreateRequest(BaseModel):
     owner_id: int | None = None
     category_id: int | None = Field(None, description="ID категории из /api/v1/source-categories")
 
-    @field_validator("source")
-    @classmethod
-    def normalize_source(cls, v: str) -> str:
-        s = (v or "vk").strip().lower()
-        if s not in ("vk", "rss"):
-            raise ValueError("Поле source должно быть vk или rss")
-        return s
-
 
 class SourceUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -47,7 +37,6 @@ class SourceUpdateRequest(BaseModel):
     description: str | None = None
     status: SourceStatus | None = None
     source_type: SourceType | None = None
-    platform: str | None = None
     username: str | None = None
     external_id: str | None = None
     priority: int | None = Field(None, ge=0)
@@ -90,9 +79,7 @@ class SourceRead(BaseModel):
     id: int
     name: str | None = None
     url: str
-    source: str = "vk"
     source_type: str | None = None
-    platform: str | None = None
     username: str | None = None
     external_id: str | None = None
     description: str | None = None

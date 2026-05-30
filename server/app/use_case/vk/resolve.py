@@ -13,10 +13,7 @@ logger = get_logger(__name__)
 
 
 def _determine_source_type(group: dict) -> str:
-    gtype = str(group.get("type") or "").lower()
-    if gtype == "group":
-        return "vk_group"
-    return "vk_public"
+    return "vk"
 
 
 def _cover_url(group: dict) -> str | None:

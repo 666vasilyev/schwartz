@@ -11,12 +11,11 @@ async def execute(
     limit: int,
     q: str | None,
     status: str | None = None,
-    platform: str | None = None,
     source_type: str | None = None,
     owner_id: int | None = None,
 ) -> SourceListResponse:
     total = await count_sources(
-        db, search=q, status=status, platform=platform, source_type=source_type, owner_id=owner_id
+        db, search=q, status=status, source_type=source_type, owner_id=owner_id
     )
     rows = await fetch_sources(
         db,
@@ -24,7 +23,6 @@ async def execute(
         limit=limit,
         search=q,
         status=status,
-        platform=platform,
         source_type=source_type,
         owner_id=owner_id,
     )

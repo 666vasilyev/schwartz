@@ -20,9 +20,7 @@ async def add_source(
     *,
     url: str,
     name: str | None = None,
-    source: str = "vk",
     source_type: str | None = None,
-    platform: str | None = None,
     username: str | None = None,
     external_id: str | None = None,
     description: str | None = None,
@@ -38,16 +36,14 @@ async def add_source(
     region_hint: str | None = None,
     topic_hint: str | None = None,
     owner_id: int | None = None,
-    category: str | None = None,
+    category_id: int | None = None,
     extra: dict | None = None,
     source_metadata: dict | None = None,
 ) -> Source:
     row = Source(
         url=url,
         name=name,
-        source=source,
-        source_type=source_type or source,
-        platform=platform or source,
+        source_type=source_type,
         username=username,
         external_id=external_id or (str(vk_owner_id) if vk_owner_id else None),
         description=description,
@@ -63,7 +59,7 @@ async def add_source(
         region_hint=region_hint,
         topic_hint=topic_hint,
         owner_id=owner_id,
-        category=category,
+        category_id=category_id,
         extra=extra,
         source_metadata=source_metadata,
     )
@@ -88,7 +84,6 @@ async def update_source(
     url: str | object = _OMIT,
     status: str | object = _OMIT,
     source_type: str | None | object = _OMIT,
-    platform: str | None | object = _OMIT,
     username: str | None | object = _OMIT,
     external_id: str | None | object = _OMIT,
     description: str | None | object = _OMIT,
@@ -107,7 +102,7 @@ async def update_source(
     region_hint: str | None | object = _OMIT,
     topic_hint: str | None | object = _OMIT,
     owner_id: int | None | object = _OMIT,
-    category: str | None | object = _OMIT,
+    category_id: int | None | object = _OMIT,
     last_run_at: datetime | None | object = _OMIT,
     error_message: str | None | object = _OMIT,
     vk_owner_id: int | None | object = _OMIT,
@@ -123,7 +118,6 @@ async def update_source(
         "url": url,
         "status": status,
         "source_type": source_type,
-        "platform": platform,
         "username": username,
         "external_id": external_id,
         "description": description,
@@ -142,7 +136,7 @@ async def update_source(
         "region_hint": region_hint,
         "topic_hint": topic_hint,
         "owner_id": owner_id,
-        "category": category,
+        "category_id": category_id,
         "last_run_at": last_run_at,
         "error_message": error_message,
         "vk_owner_id": vk_owner_id,
@@ -184,7 +178,6 @@ async def count_sources(
     *,
     search: str | None,
     status: str | None = None,
-    platform: str | None = None,
     source_type: str | None = None,
     owner_id: int | None = None,
     include_deleted: bool = False,
@@ -197,8 +190,6 @@ async def count_sources(
         q = q.where(or_(Source.name.ilike(pat), Source.url.ilike(pat)))
     if status:
         q = q.where(Source.status == status)
-    if platform:
-        q = q.where(Source.platform == platform)
     if source_type:
         q = q.where(Source.source_type == source_type)
     if owner_id is not None:
@@ -214,7 +205,6 @@ async def list_sources(
     limit: int,
     search: str | None = None,
     status: str | None = None,
-    platform: str | None = None,
     source_type: str | None = None,
     owner_id: int | None = None,
     include_deleted: bool = False,
@@ -227,8 +217,6 @@ async def list_sources(
         q = q.where(or_(Source.name.ilike(pat), Source.url.ilike(pat)))
     if status:
         q = q.where(Source.status == status)
-    if platform:
-        q = q.where(Source.platform == platform)
     if source_type:
         q = q.where(Source.source_type == source_type)
     if owner_id is not None:

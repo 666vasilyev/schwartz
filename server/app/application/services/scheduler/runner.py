@@ -147,7 +147,7 @@ class SchedulerService:
                 if rule is not None and not rule.is_enabled:
                     continue
 
-                platform = src.platform or "unknown"
+                platform = src.source_type or "unknown"
 
                 # Night mode check (rate-limit-style skip)
                 if rule and rule.night_mode_enabled:

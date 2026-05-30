@@ -25,8 +25,7 @@ EMBEDDING_DIM = _settings.embedding_dim
 
 
 class SourceType(StrEnum):
-    VK_GROUP = "vk_group"
-    VK_PUBLIC = "vk_public"
+    VK = "vk"
     RSS = "rss"
 
 
@@ -38,12 +37,6 @@ class SourceStatus(StrEnum):
     BLOCKED = "blocked"
     DELETED = "deleted"
 
-
-class SourceCategory(StrEnum):
-    """Оставлен для обратной совместимости. Новые категории — в таблице source_categories."""
-    RU_SMI = "ru_smi"
-    UA_SMI = "ua_smi"
-    FOREIGN_SMI = "foreign_smi"
 
 
 class SourceCategoryModel(Base):
@@ -71,15 +64,15 @@ class Source(Base):
     __tablename__ = "sources"
     __table_args__ = (
         Index(
-            "uq_sources_platform_external_id",
-            "platform",
+            "uq_sources_source_type_external_id",
+            "source_type",
             "external_id",
             unique=True,
             postgresql_where=text("external_id IS NOT NULL AND deleted_at IS NULL"),
         ),
         Index(
-            "uq_sources_platform_username",
-            "platform",
+            "uq_sources_source_type_username",
+            "source_type",
             "username",
             unique=True,
             postgresql_where=text("username IS NOT NULL AND deleted_at IS NULL"),
@@ -90,10 +83,8 @@ class Source(Base):
     name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     url: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # Granular type: vk_group, vk_public, rss
+    # Type: "vk" or "rss"
     source_type: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
-    # Platform bucket: "vk" or "rss"
-    platform: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     # Screen name / slug (e.g. "durov", "public123")
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Platform-specific external ID (VK owner_id as string, RSS feed ID)
@@ -142,8 +133,7 @@ class Source(Base):
     # Rich metadata fetched from the source (VK group info, RSS feed title, etc.)
     source_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
 
-    # Legacy fields kept for backward compatibility with collect logic
-    source: Mapped[str] = mapped_column(String(32), nullable=False, default="vk", index=True)
+    # Legacy fields
     vk_owner_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)

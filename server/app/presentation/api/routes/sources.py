@@ -94,11 +94,10 @@ async def import_sources(
 async def export_sources(
     fmt: str = Query("json", pattern="^(json|csv)$", description="Формат: json или csv"),
     status_filter: str | None = Query(None, alias="status"),
-    platform: str | None = Query(None),
     db: AsyncSession = Depends(get_session),
 ) -> Response:
     return await export_uc.execute(
-        db, fmt=fmt, status_filter=status_filter, platform_filter=platform
+        db, fmt=fmt, status_filter=status_filter
     )
 
 
@@ -115,7 +114,6 @@ async def list_sources(
     limit: int = Query(20, ge=1, le=500),
     q: str | None = Query(None, description="Поиск по названию / ссылке"),
     status: str | None = Query(None),
-    platform: str | None = Query(None),
     source_type: str | None = Query(None),
     owner_id: int | None = Query(None),
     db: AsyncSession = Depends(get_session),
@@ -126,7 +124,6 @@ async def list_sources(
         limit=limit,
         q=q,
         status=status,
-        platform=platform,
         source_type=source_type,
         owner_id=owner_id,
     )

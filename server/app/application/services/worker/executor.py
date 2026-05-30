@@ -179,7 +179,7 @@ async def _run_collect(
         raise ValueError("source_id обязателен для задач сбора")
 
     src = await get_source_by_id(db, source_id)
-    platform = src.platform if src else None
+    platform = src.source_type if src else None
     limit = int(params.get("limit", 100))
     use_mock = bool(params.get("use_mock", False))
 

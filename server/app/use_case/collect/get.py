@@ -200,6 +200,6 @@ async def execute(
             detail="Источник не найден",
         )
 
-    if row.source == "rss":
+    if row.source_type == "rss":
         return await _collect_rss(db, row=row, limit=limit, use_mock=use_mock)
     return await _collect_vk_public(db, row=row, limit=limit, use_mock=use_mock)

@@ -284,7 +284,7 @@ async def count_active_jobs_for_platform(db: AsyncSession, platform: str) -> int
         .select_from(CollectionJob)
         .join(Source, CollectionJob.source_id == Source.id, isouter=True)
         .where(
-            Source.platform == platform,
+            Source.source_type == platform,
             CollectionJob.status.in_(_ACTIVE_STATUSES),
         )
     )

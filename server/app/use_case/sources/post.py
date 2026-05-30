@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infrastructure.db.orm.models import SourceStatus, SourceType
+from app.infrastructure.db.orm.models import SourceStatus
 from app.infrastructure.feeds.rss_url import normalize_rss_feed_url
 from app.infrastructure.repositories import add_source
 from app.infrastructure.repositories.source_category import get_category
@@ -30,7 +30,7 @@ async def _validate_category_id(db: AsyncSession, category_id: int | None) -> No
 
 async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
     await _validate_category_id(db, body.category_id)
-    if body.source == "rss":
+    if (body.source_type and body.source_type.value == "rss") or (not body.source_type and "vk.com" not in body.url):
         try:
             norm = normalize_rss_feed_url(body.url)
         except ValueError as exc:
@@ -41,14 +41,11 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
         p = urlparse(norm)
         fallback = (p.path or "").strip("/").split("/")[0] or p.netloc or norm
         display_name = body.name if body.name and body.name.strip() else fallback
-        source_type = (body.source_type or SourceType.RSS).value
         row = await add_source(
             db,
             url=norm,
             name=display_name,
-            source="rss",
-            source_type=source_type,
-            platform="rss",
+            source_type="rss",
             description=body.description,
             status=SourceStatus.ACTIVE.value,
             priority=body.priority,
@@ -71,14 +68,11 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
         segment = public_path_segment_from_url(norm)
         display_name = body.name if body.name and body.name.strip() else segment
         vk_owner_id = await vk_resolve.resolve_vk_owner_id(segment)
-        source_type = (body.source_type or SourceType.VK_PUBLIC).value
         row = await add_source(
             db,
             url=norm,
             name=display_name,
-            source="vk",
-            source_type=source_type,
-            platform="vk",
+            source_type="vk",
             username=segment,
             external_id=str(vk_owner_id) if vk_owner_id else None,
             vk_owner_id=vk_owner_id,

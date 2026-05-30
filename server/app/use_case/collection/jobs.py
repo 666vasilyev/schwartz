@@ -80,7 +80,7 @@ async def create(db: AsyncSession, body: CreateJobRequest) -> JobRead:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Источник не найден"
             )
-        await _check_source_limits(db, body.source_id, src.platform)
+        await _check_source_limits(db, body.source_id, src.source_type)
 
     job = await create_job(
         db,
@@ -226,7 +226,7 @@ async def fetch_source(
     src = await get_source_by_id(db, source_id)
     if src is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Источник не найден")
-    await _check_source_limits(db, source_id, src.platform)
+    await _check_source_limits(db, source_id, src.source_type)
 
     params = dict(body.params or {})
     params["limit"] = body.limit
@@ -254,7 +254,7 @@ async def fetch_source_history(
     src = await get_source_by_id(db, source_id)
     if src is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Источник не найден")
-    await _check_source_limits(db, source_id, src.platform)
+    await _check_source_limits(db, source_id, src.source_type)
 
     params: dict = {"limit": body.limit}
     if body.date_from:

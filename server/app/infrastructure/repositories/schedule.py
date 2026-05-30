@@ -154,11 +154,11 @@ async def find_rule_for_source(db: AsyncSession, source: Source) -> ScheduleRule
             return r
 
     # 3. Platform
-    if source.platform:
+    if source.source_type:
         r = await db.scalar(
             select(ScheduleRule).where(
                 ScheduleRule.rule_type == ScheduleRuleType.PLATFORM,
-                ScheduleRule.platform == source.platform,
+                ScheduleRule.platform == source.source_type,
                 ScheduleRule.is_enabled.is_(True),
             )
         )

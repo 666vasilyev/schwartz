@@ -28,7 +28,7 @@ async def execute(
     prev_status = row.status
 
     if "url" in patch:
-        if row.source == "rss":
+        if row.source_type == "rss":
             try:
                 patch["url"] = normalize_rss_feed_url(patch["url"])
             except ValueError as exc:

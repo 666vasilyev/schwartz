@@ -36,7 +36,7 @@ async def _get_vk_source(db: AsyncSession, source_id: int) -> Source:
     src = await get_source_by_id(db, source_id)
     if src is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Источник не найден")
-    if src.platform != "vk":
+    if src.source_type != "vk":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Источник не является VK-источником",

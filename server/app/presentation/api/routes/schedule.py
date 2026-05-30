@@ -172,7 +172,7 @@ async def due_sources(
         DueSourceItem(
             source_id=src.id,
             name=src.name,
-            platform=src.platform,
+            platform=src.source_type,
             url=src.url,
             next_fetch_at=src.next_fetch_at,
             last_success_at=src.last_success_at,
