@@ -114,9 +114,9 @@ def score_text(text: str) -> tuple[dict[str, float], list[str]]:
     if not matched:
         return zero, []
 
-    # Нормировка: max → 1.0
-    max_val = max(totals.values())
-    if max_val > 0:
-        totals = {k: round(v / max_val, 4) for k, v in totals.items()}
+    # Нормировка: сумма всех значений → 1.0
+    total_sum = sum(totals.values())
+    if total_sum > 0:
+        totals = {k: round(v / total_sum, 4) for k, v in totals.items()}
 
     return totals, matched
