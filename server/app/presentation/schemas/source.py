@@ -115,14 +115,14 @@ class SourceRead(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _extract_category_ids(cls, data: Any) -> Any:
-        # When building from ORM object, derive category_ids from categories relationship
+        # When building from ORM object, derive category_names from categories relationship
         if hasattr(data, "__tablename__"):  # SQLAlchemy ORM instance
             cats = getattr(data, "categories", None) or []
-            return {
-                **{c: getattr(data, c, None) for c in data.__mapper__.column_attrs.keys()},
-                "category_names": [c.name for c in cats],
-                "source_metadata": getattr(data, "source_metadata", None),
-            }
+            # vars(data) содержит только уже загруженные атрибуты —
+            # не триггерит ленивую загрузку экспайред-атрибутов вне async-контекста
+            col_data = {k: v for k, v in vars(data).items() if not k.startswith("_")}
+            col_data["category_names"] = [c.name for c in cats]
+            return col_data
         return data
 
 

@@ -76,7 +76,7 @@ async def add_source(
         row.categories = await _load_categories(db, category_names)
     db.add(row)
     await db.flush()
-    await db.refresh(row, ["categories"])
+    await db.refresh(row)
     return row
 
 
@@ -165,7 +165,7 @@ async def update_source(
         row.categories = []
 
     await db.flush()
-    await db.refresh(row, ["categories"])
+    await db.refresh(row)
     return row
 
 
