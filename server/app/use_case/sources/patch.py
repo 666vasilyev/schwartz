@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +39,15 @@ async def execute(
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
                 ) from exc
+        elif row.source_type == "telegram":
+            m = re.search(
+                r"(?:t\.me|telegram\.me)/([A-Za-z0-9_]{5,})",
+                patch["url"],
+                re.IGNORECASE,
+            )
+            if m:
+                patch["url"] = f"https://t.me/{m.group(1)}"
+            # иначе оставляем как есть — не ломаем запрос
         else:
             try:
                 norm = normalize_vk_url(patch["url"])
@@ -57,8 +68,12 @@ async def execute(
         patch["source_type"] = st.value if hasattr(st, "value") else st
 
     # category_names handled separately (relationship, not column)
-    category_names = patch.pop("category_names", _OMIT)
-    updated = await update_source(db, source_id, category_names=category_names, **patch)
+    extra: dict = {}
+    if "category_names" in patch:
+        extra["category_names"] = patch.pop("category_names")
+    else:
+        patch.pop("category_names", None)
+    updated = await update_source(db, source_id, **extra, **patch)
     assert updated is not None
 
     # Audit: schedule change

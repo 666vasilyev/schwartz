@@ -30,7 +30,7 @@ class SourceCreateRequest(BaseModel):
 
 
 class SourceUpdateRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     name: str | None = Field(None, max_length=512)
     url: str | None = Field(None, min_length=4)
