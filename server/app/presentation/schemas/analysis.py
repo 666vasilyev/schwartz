@@ -25,6 +25,20 @@ class LemmaAnalysisResult(BaseModel):
     )
 
 
+class SourceLemmaAnalysisResponse(BaseModel):
+    """Агрегат ЦКМ по источнику или категории через словарный метод."""
+
+    source_id: int | None = None
+    category_name: str | None = None
+    posts_total: int = Field(description="Всего постов в выборке")
+    posts_analyzed: int = Field(description="Постов с непустым текстом, прошедших анализ")
+    posts_skipped_empty: int = 0
+    aggregate_schwartz: dict[str, float] = Field(
+        ...,
+        description="Среднее по 10 измерениям ЦКМ (нормировано: сумма = 1.0)",
+    )
+
+
 class ContentAnalysisResult(BaseModel):
     """Результат анализа поста: деструктивность по тексту (LLM) + 10 измерений Шварца (LLM, только в рантайме/ответе)."""
     destruct_score: float = Field(..., ge=0.0)
