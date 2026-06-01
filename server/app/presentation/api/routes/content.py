@@ -21,7 +21,7 @@ router = APIRouter(prefix="/analyze", tags=["Content Analysis"])
 
 
 @router.post(
-    "/text/lemma",
+    "/lemma",
     response_model=LemmaAnalysisResult,
     summary="Анализ текста по словарному методу (lemma_coefficients_RUS.csv)",
     description=(
@@ -35,7 +35,7 @@ def analyze_text_lemma(body: LemmaTextRequest) -> LemmaAnalysisResult:
 
 
 @router.get(
-    "/post/{post_id}/lemma",
+    "/lemma/{post_id}",
     response_model=LemmaAnalysisResult,
     summary="Анализ поста по словарному методу (lemma_coefficients_RUS.csv)",
 )
@@ -52,7 +52,7 @@ async def analyze_post_lemma(
 
 
 @router.get(
-    "/source/{source_id}/stored",
+    "/llm/{source_id}/stored",
     response_model=SourceStoredSchwartzResponse,
     summary="Сохранённый анализ Шварца по источнику (только чтение из БД)",
 )
@@ -64,7 +64,7 @@ async def get_stored_source_schwartz(
 
 
 @router.post(
-    "/source/{source_id}",
+    "/llm/{source_id}",
     response_model=SourceAnalyzeResponse,
     summary="Проанализировать посты источника (агрегат Шварца сохраняется в БД)",
 )
