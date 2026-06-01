@@ -7,7 +7,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.services.content.lemma_scorer import CSV_COLUMNS, score_text
+from app.application.services.content.lemma_scorer import CSV_COLUMNS, LemmaLang, score_text
 from app.infrastructure.db.orm.models import Post, Source
 from app.presentation.schemas.analysis import SourceLemmaAnalysisResponse
 
@@ -16,6 +16,7 @@ async def execute(
     db: AsyncSession,
     source_id: int,
     *,
+    lang: LemmaLang = LemmaLang.ru,
     limit: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -50,7 +51,7 @@ async def execute(
         if not text.strip():
             skipped += 1
             continue
-        scores, _ = score_text(text)
+        scores, _ = score_text(text, lang)
         vectors.append(scores)
 
     posts_analyzed = len(vectors)

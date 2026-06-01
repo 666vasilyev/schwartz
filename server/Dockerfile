@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir pip -U && pip install --no-cache-dir -r requireme
 COPY alembic.ini .
 COPY server/start.sh ./server/start.sh
 COPY server/app ./server/app
-COPY lemma_coefficients_RUS.csv .
+COPY server/lemma ./server/lemma
 
 RUN sed -i 's/\r$//' ./server/start.sh && chmod +x ./server/start.sh
 

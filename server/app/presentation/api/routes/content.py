@@ -7,6 +7,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.services.content.lemma_scorer import LemmaLang
 from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
 from app.presentation.schemas.analysis import (
@@ -28,24 +29,23 @@ router = APIRouter(prefix="/analyze", tags=["Content Analysis"])
 @router.post(
     "/lemma",
     response_model=LemmaAnalysisResult,
-    summary="Анализ текста по словарному методу (lemma_coefficients_RUS.csv)",
-    description=(
-        "Без вызова LLM. Ищет в тексте леммы из CSV-словаря, суммирует их веса "
-        "по 10 измерениям ценностной картины мира (модель Шварца в русской разметке), "
-        "нормирует результат (max → 1.0)."
-    ),
+    summary="Анализ текста по словарному методу",
 )
-def analyze_text_lemma(body: LemmaTextRequest) -> LemmaAnalysisResult:
-    return analyze_lemma.execute(body.text)
+def analyze_text_lemma(
+    body: LemmaTextRequest,
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+) -> LemmaAnalysisResult:
+    return analyze_lemma.execute(body.text, lang)
 
 
 @router.get(
     "/lemma/post/{post_id}",
     response_model=LemmaAnalysisResult,
-    summary="Анализ поста по словарному методу (lemma_coefficients_RUS.csv)",
+    summary="ЦКМ поста по словарному методу",
 )
 async def analyze_post_lemma(
     post_id: int,
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
     db: AsyncSession = Depends(get_session),
 ) -> LemmaAnalysisResult:
     post = await get_post_by_id(db, post_id)
@@ -53,29 +53,24 @@ async def analyze_post_lemma(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пост не найден")
     if not post.text or not post.text.strip():
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Текст поста пуст")
-    return analyze_lemma.execute(post.text)
+    return analyze_lemma.execute(post.text, lang)
 
 
 @router.get(
     "/lemma/source/{source_id}",
     response_model=SourceLemmaAnalysisResponse,
     summary="ЦКМ источника по словарному методу (агрегат по постам)",
-    description=(
-        "Забирает посты источника из БД, прогоняет каждый через лемматизатор, "
-        "возвращает среднее по 10 измерениям (нормировано: сумма = 1.0). "
-        "Параметры: limit — последние N постов; date_from / date_to — временной диапазон; "
-        "без параметров — все посты источника."
-    ),
 )
 async def analyze_source_lemma(
     source_id: int,
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
     limit: int | None = Query(None, ge=1, description="Последние N постов (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
     db: AsyncSession = Depends(get_session),
 ) -> SourceLemmaAnalysisResponse:
     return await analyze_lemma_source.execute(
-        db, source_id, limit=limit, date_from=date_from, date_to=date_to
+        db, source_id, lang=lang, limit=limit, date_from=date_from, date_to=date_to
     )
 
 
@@ -83,22 +78,17 @@ async def analyze_source_lemma(
     "/lemma/category/{category_name}",
     response_model=SourceLemmaAnalysisResponse,
     summary="ЦКМ категории источников по словарному методу (агрегат по постам)",
-    description=(
-        "Забирает посты всех источников категории из БД, прогоняет через лемматизатор, "
-        "возвращает среднее по 10 измерениям (нормировано: сумма = 1.0). "
-        "Параметры: limit — последние N постов; date_from / date_to — временной диапазон; "
-        "без параметров — все посты категории за всё время."
-    ),
 )
 async def analyze_category_lemma(
     category_name: str,
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
     limit: int | None = Query(None, ge=1, description="Последние N постов (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
     db: AsyncSession = Depends(get_session),
 ) -> SourceLemmaAnalysisResponse:
     return await analyze_lemma_category.execute(
-        db, category_name, limit=limit, date_from=date_from, date_to=date_to
+        db, category_name, lang=lang, limit=limit, date_from=date_from, date_to=date_to
     )
 
 
