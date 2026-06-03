@@ -7,9 +7,10 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.services.content.lemma_scorer import CSV_COLUMNS, LemmaLang, score_text
+from app.application.services.content.lemma_scorer import LemmaLang, score_texts_batch
 from app.infrastructure.db.orm.models import Post, SourceCategoryModel, source_category_link
 from app.presentation.schemas.analysis import SourceLemmaAnalysisResponse
+from app.use_case.analyze._lemma_aggregate import aggregate_vectors
 
 
 async def execute(
@@ -21,12 +22,10 @@ async def execute(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> SourceLemmaAnalysisResponse:
-    # Проверяем существование категории
     cat = await db.get(SourceCategoryModel, category_name)
     if cat is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Категория не найдена")
 
-    # Посты всех источников категории через junction-таблицу
     q = (
         select(Post)
         .where(
@@ -48,36 +47,18 @@ async def execute(
     result = await db.execute(q)
     posts = list(result.scalars().all())
 
-    posts_total = len(posts)
-    skipped = 0
-    vectors: list[dict[str, float]] = []
+    texts = [p.text or "" for p in posts]
+    non_empty = [t for t in texts if t.strip()]
+    skipped = len(texts) - len(non_empty)
 
-    for post in posts:
-        text = post.text or ""
-        if not text.strip():
-            skipped += 1
-            continue
-        scores, _ = score_text(text, lang)
-        vectors.append(scores)
-
-    posts_analyzed = len(vectors)
-
-    if not vectors:
-        aggregate = {k: 0.0 for k in CSV_COLUMNS}
-    else:
-        n = len(vectors)
-        raw = {k: sum(v[k] for v in vectors) / n for k in CSV_COLUMNS}
-        total = sum(raw.values())
-        if total > 0:
-            aggregate = {k: round(v / total, 4) for k, v in raw.items()}
-        else:
-            aggregate = {k: 0.0 for k in CSV_COLUMNS}
+    scores_list = await score_texts_batch(non_empty, lang)
+    vectors = [s for s, _ in scores_list]
 
     return SourceLemmaAnalysisResponse(
         source_id=None,
         category_name=category_name,
-        posts_total=posts_total,
-        posts_analyzed=posts_analyzed,
+        posts_total=len(posts),
+        posts_analyzed=len(vectors),
         posts_skipped_empty=skipped,
-        aggregate_schwartz=aggregate,
+        aggregate_schwartz=aggregate_vectors(vectors),
     )

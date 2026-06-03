@@ -1,16 +1,14 @@
 """
 Lemma-based Schwartz scoring from lemma_coefficients_*.csv.
 
-Поддерживаемые языки: ru, eng, de.
-Алгоритм:
-  1. Загрузить CSV (CP1251, разделитель ";") один раз при запуске (кэш per-lang).
-  2. Для каждой строки CSV проверить вхождение леммы в текст по границам слов (\b).
-  3. Суммировать веса совпавших строк по каждому из 10 измерений.
-  4. Нормировать: сумма всех значений → 1.0.
-  5. Вернуть dict[str, float] с теми же ключами, что в CSV.
+Оптимизации:
+  - Все леммы объединяются в одну скомпилированную regex при загрузке (один проход по тексту).
+  - Таблица и pattern кешируются per-lang через lru_cache.
+  - score_text — чистая sync-функция; для пакетного анализа используй score_texts_batch.
 """
 from __future__ import annotations
 
+import asyncio
 import csv
 import re
 from enum import Enum
@@ -21,7 +19,6 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Измерения в порядке колонок CSV (после колонки "lemma")
 CSV_COLUMNS: tuple[str, ...] = (
     "Безопасность",
     "Социальная интегрированность",
@@ -48,7 +45,6 @@ _CSV_FILENAMES: dict[LemmaLang, str] = {
     LemmaLang.de: "lemma_coefficients_DE.csv",
 }
 
-# Кандидаты директорий, где лежат CSV-файлы
 _LEMMA_DIRS: tuple[Path, ...] = (
     Path("/app/server/lemma"),
     Path(__file__).parents[5] / "server" / "lemma",
@@ -69,25 +65,26 @@ def _find_csv(lang: LemmaLang) -> Path:
 
 
 def _clean_lemma(raw: str) -> str:
-    """Убрать артефакт '1t' в начале и лишние пробелы."""
     s = re.sub(r"^1t", "", raw.strip(), flags=re.IGNORECASE)
     return s.strip().lower()
 
 
+# Возвращает (lemma_dict, compiled_pattern)
+# lemma_dict: {lemma_str -> {col -> weight}}
+# pattern: одна скомпилированная regex для всех лемм
 @lru_cache(maxsize=8)
-def _load_table(lang: LemmaLang) -> tuple[tuple[str, dict[str, float]], ...]:
-    """Загружает таблицу из CSV один раз и кэширует per-lang."""
+def _load_index(lang: LemmaLang) -> tuple[dict[str, dict[str, float]], re.Pattern | None]:
     try:
         path = _find_csv(lang)
     except FileNotFoundError as exc:
         logger.error("lemma_csv_not_found", lang=lang.value, error=str(exc))
-        return ()
+        return {}, None
 
-    entries: list[tuple[str, dict[str, float]]] = []
+    lemma_dict: dict[str, dict[str, float]] = {}
     try:
         with open(path, encoding="cp1251", newline="") as fh:
             reader = csv.reader(fh, delimiter=";")
-            next(reader, None)  # пропустить заголовок
+            next(reader, None)
             for row in reader:
                 if len(row) < len(CSV_COLUMNS) + 1:
                     continue
@@ -101,11 +98,19 @@ def _load_table(lang: LemmaLang) -> tuple[tuple[str, dict[str, float]], ...]:
                     except (ValueError, IndexError):
                         weights[col] = 0.0
                 if any(v > 0 for v in weights.values()):
-                    entries.append((lemma, weights))
-        logger.info("lemma_table_loaded", lang=lang.value, path=str(path), count=len(entries))
+                    lemma_dict[lemma] = weights
+
+        # Сортируем по убыванию длины — длинные фразы матчатся раньше коротких
+        lemmas_sorted = sorted(lemma_dict.keys(), key=len, reverse=True)
+        pattern = re.compile(
+            r"\b(?:" + "|".join(re.escape(l) for l in lemmas_sorted) + r")\b",
+        )
+        logger.info("lemma_index_built", lang=lang.value, path=str(path), count=len(lemma_dict))
+        return lemma_dict, pattern
+
     except Exception as exc:
         logger.error("lemma_table_load_failed", lang=lang.value, error=str(exc))
-    return tuple(entries)
+        return {}, None
 
 
 def score_text(
@@ -113,38 +118,53 @@ def score_text(
     lang: LemmaLang = LemmaLang.ru,
 ) -> tuple[dict[str, float], list[str]]:
     """
-    Подсчитывает нормированные значения 10 измерений для текста.
-
-    Returns:
-        (scores, matched_lemmas)
-        scores — dict[str, float] с ключами из CSV_COLUMNS, значения 0.0–1.0 (сумма = 1.0).
-        matched_lemmas — список найденных лемм (для отладки).
+    Один проход по тексту через объединённую regex.
+    Sync, CPU-bound — вызывай через run_in_executor для пакетной обработки.
     """
     zero = {k: 0.0 for k in CSV_COLUMNS}
     if not text or not text.strip():
         return zero, []
 
-    table = _load_table(lang)
-    if not table:
+    lemma_dict, pattern = _load_index(lang)
+    if not lemma_dict or pattern is None:
         return zero, []
 
     text_lower = text.lower()
     totals: dict[str, float] = {k: 0.0 for k in CSV_COLUMNS}
     matched: list[str] = []
+    seen: set[str] = set()
 
-    for lemma, weights in table:
-        # \b — граница слова (работает с кириллицей через Unicode \w в Python re)
-        if re.search(r"\b" + re.escape(lemma) + r"\b", text_lower):
-            matched.append(lemma)
-            for col in CSV_COLUMNS:
-                totals[col] += weights[col]
+    for match in pattern.finditer(text_lower):
+        lemma = match.group(0)
+        if lemma in seen:
+            continue
+        seen.add(lemma)
+        matched.append(lemma)
+        weights = lemma_dict.get(lemma, {})
+        for col in CSV_COLUMNS:
+            totals[col] += weights.get(col, 0.0)
 
     if not matched:
         return zero, []
 
-    # Нормировка: сумма → 1.0
     total_sum = sum(totals.values())
     if total_sum > 0:
         totals = {k: round(v / total_sum, 4) for k, v in totals.items()}
 
     return totals, matched
+
+
+async def score_texts_batch(
+    texts: list[str],
+    lang: LemmaLang = LemmaLang.ru,
+) -> list[tuple[dict[str, float], list[str]]]:
+    """
+    Параллельный анализ списка текстов через threadpool.
+    Используй для пакетной обработки постов источника/категории.
+    """
+    loop = asyncio.get_running_loop()
+    return list(
+        await asyncio.gather(
+            *[loop.run_in_executor(None, score_text, text, lang) for text in texts]
+        )
+    )
