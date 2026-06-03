@@ -69,18 +69,28 @@ def _clean_lemma(raw: str) -> str:
     return s.strip().lower()
 
 
-# Возвращает (lemma_dict, compiled_pattern)
-# lemma_dict: {lemma_str -> {col -> weight}}
-# pattern: одна скомпилированная regex для всех лемм
+# Индекс: (single_dict, phrase_dict, phrase_pattern)
+#   single_dict:    {word -> weights}       — 95% лемм, O(1) hash lookup
+#   phrase_dict:    {phrase -> weights}     — 5% лемм, regex
+#   phrase_pattern: compiled regex из phrase_dict (короткая, ~89 альтернаций)
+_Index = tuple[
+    dict[str, dict[str, float]],  # single_dict
+    dict[str, dict[str, float]],  # phrase_dict
+    re.Pattern | None,             # phrase_pattern
+]
+
+
 @lru_cache(maxsize=8)
-def _load_index(lang: LemmaLang) -> tuple[dict[str, dict[str, float]], re.Pattern | None]:
+def _load_index(lang: LemmaLang) -> _Index:
     try:
         path = _find_csv(lang)
     except FileNotFoundError as exc:
         logger.error("lemma_csv_not_found", lang=lang.value, error=str(exc))
-        return {}, None
+        return {}, {}, None
 
-    lemma_dict: dict[str, dict[str, float]] = {}
+    single_dict: dict[str, dict[str, float]] = {}
+    phrase_dict: dict[str, dict[str, float]] = {}
+
     try:
         with open(path, encoding="cp1251", newline="") as fh:
             reader = csv.reader(fh, delimiter=";")
@@ -97,20 +107,33 @@ def _load_index(lang: LemmaLang) -> tuple[dict[str, dict[str, float]], re.Patter
                         weights[col] = float(row[i].replace(",", ".").strip())
                     except (ValueError, IndexError):
                         weights[col] = 0.0
-                if any(v > 0 for v in weights.values()):
-                    lemma_dict[lemma] = weights
+                if not any(v > 0 for v in weights.values()):
+                    continue
+                if " " in lemma:
+                    phrase_dict[lemma] = weights
+                else:
+                    single_dict[lemma] = weights
 
-        # Сортируем по убыванию длины — длинные фразы матчатся раньше коротких
-        lemmas_sorted = sorted(lemma_dict.keys(), key=len, reverse=True)
-        pattern = re.compile(
-            r"\b(?:" + "|".join(re.escape(l) for l in lemmas_sorted) + r")\b",
+        # Regex только для многословных фраз (~89 паттернов вместо 1895)
+        phrase_pattern: re.Pattern | None = None
+        if phrase_dict:
+            phrases_sorted = sorted(phrase_dict.keys(), key=len, reverse=True)
+            phrase_pattern = re.compile(
+                r"\b(?:" + "|".join(re.escape(p) for p in phrases_sorted) + r")\b",
+            )
+
+        logger.info(
+            "lemma_index_built",
+            lang=lang.value,
+            path=str(path),
+            single=len(single_dict),
+            phrases=len(phrase_dict),
         )
-        logger.info("lemma_index_built", lang=lang.value, path=str(path), count=len(lemma_dict))
-        return lemma_dict, pattern
+        return single_dict, phrase_dict, phrase_pattern
 
     except Exception as exc:
         logger.error("lemma_table_load_failed", lang=lang.value, error=str(exc))
-        return {}, None
+        return {}, {}, None
 
 
 def score_text(
@@ -118,31 +141,46 @@ def score_text(
     lang: LemmaLang = LemmaLang.ru,
 ) -> tuple[dict[str, float], list[str]]:
     """
-    Один проход по тексту через объединённую regex.
-    Sync, CPU-bound — вызывай через run_in_executor для пакетной обработки.
+    Двухуровневый поиск:
+      - однословные леммы: токенизация текста → set → O(1) hash lookup
+      - многословные фразы: короткая regex (~89 паттернов)
+
+    Sync, CPU-bound — вызывай через score_texts_batch для пакетной обработки.
     """
     zero = {k: 0.0 for k in CSV_COLUMNS}
     if not text or not text.strip():
         return zero, []
 
-    lemma_dict, pattern = _load_index(lang)
-    if not lemma_dict or pattern is None:
+    single_dict, phrase_dict, phrase_pattern = _load_index(lang)
+    if not single_dict and not phrase_dict:
         return zero, []
 
     text_lower = text.lower()
     totals: dict[str, float] = {k: 0.0 for k in CSV_COLUMNS}
     matched: list[str] = []
-    seen: set[str] = set()
 
-    for match in pattern.finditer(text_lower):
-        lemma = match.group(0)
-        if lemma in seen:
-            continue
-        seen.add(lemma)
-        matched.append(lemma)
-        weights = lemma_dict.get(lemma, {})
-        for col in CSV_COLUMNS:
-            totals[col] += weights.get(col, 0.0)
+    # 1. Однословные: токенизация → set intersection со словарём
+    word_set = set(re.split(r"\W+", text_lower))
+    for word in word_set:
+        weights = single_dict.get(word)
+        if weights:
+            matched.append(word)
+            for col in CSV_COLUMNS:
+                totals[col] += weights.get(col, 0.0)
+
+    # 2. Многословные фразы: короткая regex
+    if phrase_pattern:
+        seen_phrases: set[str] = set()
+        for m in phrase_pattern.finditer(text_lower):
+            phrase = m.group(0)
+            if phrase in seen_phrases:
+                continue
+            seen_phrases.add(phrase)
+            weights = phrase_dict.get(phrase)
+            if weights:
+                matched.append(phrase)
+                for col in CSV_COLUMNS:
+                    totals[col] += weights.get(col, 0.0)
 
     if not matched:
         return zero, []
