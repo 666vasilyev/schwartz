@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services.content.lemma_scorer import LemmaLang, score_texts_batch
 from app.infrastructure.db.orm.models import Post, SourceCategoryModel, source_category_link
 from app.presentation.schemas.analysis import SourceLemmaAnalysisResponse
-from app.use_case.analyze._lemma_aggregate import aggregate_vectors
+from app.use_case.analyze._lemma_aggregate import aggregate_categories, aggregate_vectors
 
 
 async def execute(
@@ -52,7 +52,8 @@ async def execute(
     skipped = len(texts) - len(non_empty)
 
     scores_list = await score_texts_batch(non_empty, lang)
-    vectors = [s for s, _ in scores_list]
+    vectors = [s for s, _, _c in scores_list]
+    cat_freqs = [c for _s, _, c in scores_list]
 
     return SourceLemmaAnalysisResponse(
         source_id=None,
@@ -61,4 +62,5 @@ async def execute(
         posts_analyzed=len(vectors),
         posts_skipped_empty=skipped,
         aggregate_schwartz=aggregate_vectors(vectors),
+        aggregate_categories=aggregate_categories(cat_freqs),
     )

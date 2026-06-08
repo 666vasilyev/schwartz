@@ -6,9 +6,10 @@ from app.presentation.schemas.analysis import LemmaAnalysisResult
 
 
 def execute(text: str, lang: LemmaLang = LemmaLang.ru) -> LemmaAnalysisResult:
-    scores, matched = score_text(text, lang)
+    scores, matched, cat_freq = score_text(text, lang)
     return LemmaAnalysisResult(
         schwartz_values=scores,
+        category_frequencies=cat_freq,
         matched_count=len(matched),
         matched_lemmas=matched,
     )

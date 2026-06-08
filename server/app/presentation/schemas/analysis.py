@@ -18,14 +18,15 @@ class LemmaBaselineResponse(BaseModel):
 
 
 class LemmaAnalysisResult(BaseModel):
-    """Результат анализа текста по словарному методу (lemma_coefficients_RUS.csv)."""
+    """Результат анализа текста по словарному методу."""
 
     schwartz_values: dict[str, float] = Field(
         ...,
-        description=(
-            "10 измерений ценностной картины мира (нормировано 0.0–1.0, max→1.0). "
-            "Ключи совпадают с колонками CSV: Безопасность, Амбиозность и т.д."
-        ),
+        description="10 измерений ЦКМ (нормировано: сумма = 1.0)",
+    )
+    category_frequencies: dict[str, float] = Field(
+        default_factory=dict,
+        description="Нормированная частота категорий слов из CSV (сумма = 1.0), отсортировано по убыванию",
     )
     matched_count: int = Field(..., description="Число совпавших лемм в тексте")
     matched_lemmas: list[str] = Field(
@@ -45,6 +46,10 @@ class SourceLemmaAnalysisResponse(BaseModel):
     aggregate_schwartz: dict[str, float] = Field(
         ...,
         description="Среднее по 10 измерениям ЦКМ (нормировано: сумма = 1.0)",
+    )
+    aggregate_categories: dict[str, float] = Field(
+        default_factory=dict,
+        description="Нормированная частота категорий слов по всем постам (сумма = 1.0)",
     )
 
 
