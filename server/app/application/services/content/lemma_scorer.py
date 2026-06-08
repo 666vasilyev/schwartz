@@ -97,7 +97,7 @@ def _load_index(lang: LemmaLang):
                 if not any(v > 0 for v in weights.values()):
                     continue
                 raw_cat = row[11].strip() if len(row) > 11 else ""
-                cats = [c.strip() for c in raw_cat.split("/") if c.strip()] if raw_cat else []
+                cats = [c.strip().casefold() for c in raw_cat.split("/") if c.strip()] if raw_cat else []
                 categories_dict[lemma] = cats
                 if " " in lemma:
                     phrase_dict[lemma] = weights
