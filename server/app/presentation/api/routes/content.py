@@ -12,6 +12,7 @@ from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
 from app.presentation.schemas.analysis import (
     LemmaAnalysisResult,
+    LemmaSourcesRequest,
     LemmaTextRequest,
     SourceAnalyzeResponse,
     SourceLemmaAnalysisResponse,
@@ -56,21 +57,21 @@ async def analyze_post_lemma(
     return analyze_lemma.execute(post.text, lang)
 
 
-@router.get(
-    "/lemma/source/{source_id}",
-    response_model=SourceLemmaAnalysisResponse,
-    summary="ЦКМ источника по словарному методу (агрегат по постам)",
+@router.post(
+    "/lemma/source",
+    response_model=list[SourceLemmaAnalysisResponse],
+    summary="ЦКМ по списку источников (словарный метод, один результат на источник)",
 )
 async def analyze_source_lemma(
-    source_id: int,
+    body: LemmaSourcesRequest,
     lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
     limit: int | None = Query(None, ge=1, description="Последние N постов (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
     db: AsyncSession = Depends(get_session),
-) -> SourceLemmaAnalysisResponse:
+) -> list[SourceLemmaAnalysisResponse]:
     return await analyze_lemma_source.execute(
-        db, source_id, lang=lang, limit=limit, date_from=date_from, date_to=date_to
+        db, body.source_ids, lang=lang, limit=limit, date_from=date_from, date_to=date_to
     )
 
 

@@ -8,6 +8,10 @@ class LemmaTextRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Текст для анализа")
 
 
+class LemmaSourcesRequest(BaseModel):
+    source_ids: list[int] = Field(..., min_length=1, description="Список ID источников")
+
+
 class LemmaAnalysisResult(BaseModel):
     """Результат анализа текста по словарному методу (lemma_coefficients_RUS.csv)."""
 
