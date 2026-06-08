@@ -7,11 +7,12 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.services.content.lemma_scorer import LemmaLang
+from app.application.services.content.lemma_scorer import LemmaLang, read_baseline
 from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
 from app.presentation.schemas.analysis import (
     LemmaAnalysisResult,
+    LemmaBaselineResponse,
     LemmaSourcesRequest,
     LemmaTextRequest,
     SourceAnalyzeResponse,
@@ -25,6 +26,21 @@ from app.use_case.analyze import lemma_source as analyze_lemma_source
 from app.use_case.analyze import post as analyze_post
 
 router = APIRouter(prefix="/analyze", tags=["Content Analysis"])
+
+
+@router.get(
+    "/lemma/baseline",
+    response_model=LemmaBaselineResponse,
+    summary="Базовое распределение ЦКМ для языка (эталонные значения из словаря)",
+)
+def get_lemma_baseline(
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+) -> LemmaBaselineResponse:
+    result = read_baseline(lang)
+    if result is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Baseline для языка '{lang.value}' не найден")
+    return LemmaBaselineResponse(**result)
 
 
 @router.post(

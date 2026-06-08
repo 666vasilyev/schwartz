@@ -192,6 +192,41 @@ def score_text(
     return totals, matched
 
 
+_BASELINE_JSON_DIRS: tuple[Path, ...] = (
+    Path("/app/server/lemma/lemma_baseline.json"),
+    Path(__file__).parents[5] / "server" / "lemma" / "lemma_baseline.json",
+    Path("server/lemma/lemma_baseline.json"),
+)
+
+
+def _find_baseline_json() -> Path:
+    for p in _BASELINE_JSON_DIRS:
+        if p.exists():
+            return p
+    raise FileNotFoundError("lemma_baseline.json не найден")
+
+
+@lru_cache(maxsize=1)
+def _load_baseline_json() -> dict:
+    import json
+    path = _find_baseline_json()
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def read_baseline(lang: LemmaLang) -> dict | None:
+    """
+    Возвращает базовое распределение ЦКМ для языка из lemma_baseline.json.
+    Формат: {"label": "ru", "schwartz_values": {"Безопасность": 0.312, ...}}
+    """
+    try:
+        data = _load_baseline_json()
+        return data.get(lang.value)
+    except Exception as exc:
+        logger.error("lemma_baseline_read_failed", lang=lang.value, error=str(exc))
+        return None
+
+
 async def score_texts_batch(
     texts: list[str],
     lang: LemmaLang = LemmaLang.ru,

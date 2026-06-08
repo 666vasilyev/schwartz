@@ -12,6 +12,11 @@ class LemmaSourcesRequest(BaseModel):
     source_ids: list[int] = Field(..., min_length=1, description="Список ID источников")
 
 
+class LemmaBaselineResponse(BaseModel):
+    label: str
+    schwartz_values: dict[str, float]
+
+
 class LemmaAnalysisResult(BaseModel):
     """Результат анализа текста по словарному методу (lemma_coefficients_RUS.csv)."""
 
