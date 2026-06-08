@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -50,6 +50,33 @@ class SourceLemmaAnalysisResponse(BaseModel):
     aggregate_categories: dict[str, float] = Field(
         default_factory=dict,
         description="Нормированная частота категорий слов по всем постам (сумма = 1.0)",
+    )
+
+
+class CategoryLemmaDayItem(BaseModel):
+    """ЦКМ категории по словарному методу за один день (по дате публикации постов)."""
+
+    date: date
+    posts_total: int = Field(description="Всего постов категории за этот день")
+    posts_analyzed: int = Field(description="Постов с непустым текстом, прошедших анализ")
+    posts_skipped_empty: int = 0
+    aggregate_schwartz: dict[str, float] = Field(
+        ...,
+        description="Среднее по 10 измерениям ЦКМ за день (нормировано: сумма = 1.0)",
+    )
+    aggregate_categories: dict[str, float] = Field(
+        default_factory=dict,
+        description="Нормированная частота категорий слов за день (сумма = 1.0)",
+    )
+
+
+class CategoryLemmaByDayResponse(BaseModel):
+    """ЦКМ категории по словарному методу, в разбивке по дням публикации (вместо одного агрегата за весь период)."""
+
+    category_name: str
+    days: list[CategoryLemmaDayItem] = Field(
+        default_factory=list,
+        description="По одной записи на каждый день, где есть посты; отсортировано по убыванию даты",
     )
 
 

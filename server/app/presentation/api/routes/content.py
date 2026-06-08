@@ -11,6 +11,7 @@ from app.application.services.content.lemma_scorer import LemmaLang, read_baseli
 from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
 from app.presentation.schemas.analysis import (
+    CategoryLemmaByDayResponse,
     LemmaAnalysisResult,
     LemmaBaselineResponse,
     LemmaSourcesRequest,
@@ -22,6 +23,7 @@ from app.presentation.schemas.analysis import (
 from app.use_case.analyze import get_stored as analyze_get_stored
 from app.use_case.analyze import lemma as analyze_lemma
 from app.use_case.analyze import lemma_category as analyze_lemma_category
+from app.use_case.analyze import lemma_category_by_day as analyze_lemma_category_by_day
 from app.use_case.analyze import lemma_source as analyze_lemma_source
 from app.use_case.analyze import post as analyze_post
 
@@ -105,6 +107,24 @@ async def analyze_category_lemma(
     db: AsyncSession = Depends(get_session),
 ) -> SourceLemmaAnalysisResponse:
     return await analyze_lemma_category.execute(
+        db, category_name, lang=lang, limit=limit, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get(
+    "/lemma/category/{category_name}/by_day",
+    response_model=CategoryLemmaByDayResponse,
+    summary="ЦКМ категории по словарному методу, в разбивке по дням публикации постов",
+)
+async def analyze_category_lemma_by_day(
+    category_name: str,
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+    limit: int | None = Query(None, ge=1, description="Последние N постов категории (по дате публикации)"),
+    date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
+    date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
+    db: AsyncSession = Depends(get_session),
+) -> CategoryLemmaByDayResponse:
+    return await analyze_lemma_category_by_day.execute(
         db, category_name, lang=lang, limit=limit, date_from=date_from, date_to=date_to
     )
 
