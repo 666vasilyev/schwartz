@@ -64,7 +64,9 @@ async def get_category_sources(db: AsyncSession, name: str) -> list[Source]:
     """Возвращает источники категории (только не удалённые)."""
     res = await db.execute(
         select(SourceCategoryModel)
-        .options(selectinload(SourceCategoryModel.sources))
+        .options(
+            selectinload(SourceCategoryModel.sources).selectinload(Source.categories)
+        )
         .where(SourceCategoryModel.name == name)
     )
     obj = res.scalar_one_or_none()
