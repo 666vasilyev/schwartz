@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.infrastructure.db.orm.models import SourceCategoryModel
+from app.infrastructure.db.orm.models import Source, SourceCategoryModel
 
 
 async def get_category(db: AsyncSession, name: str) -> SourceCategoryModel | None:
@@ -57,6 +58,19 @@ async def update_category(
     await db.flush()
     await db.refresh(obj)
     return obj
+
+
+async def get_category_sources(db: AsyncSession, name: str) -> list[Source]:
+    """Возвращает источники категории (только не удалённые)."""
+    res = await db.execute(
+        select(SourceCategoryModel)
+        .options(selectinload(SourceCategoryModel.sources))
+        .where(SourceCategoryModel.name == name)
+    )
+    obj = res.scalar_one_or_none()
+    if obj is None:
+        return []
+    return [s for s in obj.sources if s.deleted_at is None]
 
 
 async def delete_category(db: AsyncSession, obj: SourceCategoryModel) -> None:

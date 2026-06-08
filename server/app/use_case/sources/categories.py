@@ -11,6 +11,8 @@ from app.infrastructure.repositories.source_category import (
     list_categories,
     update_category,
 )
+from app.infrastructure.repositories.source_category import get_category_sources  # noqa: F401
+from app.presentation.schemas.source import SourceRead
 from app.presentation.schemas.source_category import (
     SourceCategoryCreateRequest,
     SourceCategoryListResponse,
@@ -66,6 +68,14 @@ async def patch(
     obj = await update_category(db, obj, name=body.name, description=body.description)
     await db.commit()
     return SourceCategoryRead.model_validate(obj)
+
+
+async def get_sources(db: AsyncSession, category_name: str) -> list[SourceRead]:
+    obj = await get_category(db, category_name)
+    if not obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Категория не найдена")
+    sources = await get_category_sources(db, category_name)
+    return [SourceRead.model_validate(s) for s in sources]
 
 
 async def delete(db: AsyncSession, category_name: str) -> None:

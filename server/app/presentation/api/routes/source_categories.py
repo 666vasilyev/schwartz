@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.presentation.api.dependencies import get_session
+from app.presentation.schemas.source import SourceListResponse, SourceRead
 from app.presentation.schemas.source_category import (
     SourceCategoryCreateRequest,
     SourceCategoryListResponse,
@@ -42,6 +43,18 @@ async def list_categories(
     db: AsyncSession = Depends(get_session),
 ) -> SourceCategoryListResponse:
     return await categories_uc.list_all(db, skip=skip, limit=limit)
+
+
+@router.get(
+    "/{category_name}/sources",
+    response_model=list[SourceRead],
+    summary="Источники категории",
+)
+async def list_category_sources(
+    category_name: str = Path(..., min_length=1),
+    db: AsyncSession = Depends(get_session),
+) -> list[SourceRead]:
+    return await categories_uc.get_sources(db, category_name)
 
 
 @router.get(
