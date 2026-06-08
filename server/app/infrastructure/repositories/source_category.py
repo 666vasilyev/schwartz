@@ -8,10 +8,13 @@ from sqlalchemy.orm import selectinload
 from app.infrastructure.db.orm.models import Source, SourceCategoryModel
 
 
-async def get_category(db: AsyncSession, name: str) -> SourceCategoryModel | None:
-    res = await db.execute(
-        select(SourceCategoryModel).where(SourceCategoryModel.name == name)
-    )
+async def get_category(
+    db: AsyncSession, name: str, *, load_sources: bool = False
+) -> SourceCategoryModel | None:
+    q = select(SourceCategoryModel).where(SourceCategoryModel.name == name)
+    if load_sources:
+        q = q.options(selectinload(SourceCategoryModel.sources))
+    res = await db.execute(q)
     return res.scalar_one_or_none()
 
 

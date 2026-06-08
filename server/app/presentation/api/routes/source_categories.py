@@ -13,6 +13,7 @@ from app.presentation.schemas.source_category import (
     SourceCategoryListResponse,
     SourceCategoryRead,
     SourceCategoryUpdateRequest,
+    SourcesBulkRequest,
 )
 from app.use_case.sources import categories as categories_uc
 
@@ -55,6 +56,30 @@ async def list_category_sources(
     db: AsyncSession = Depends(get_session),
 ) -> list[SourceRead]:
     return await categories_uc.get_sources(db, category_name)
+
+
+@router.post(
+    "/{category_name}/sources/attach",
+    summary="Массово привязать источники к категории",
+)
+async def attach_sources(
+    category_name: str = Path(..., min_length=1),
+    body: SourcesBulkRequest = ...,
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    return await categories_uc.attach_sources(db, category_name, body.source_ids)
+
+
+@router.post(
+    "/{category_name}/sources/detach",
+    summary="Массово отвязать источники от категории",
+)
+async def detach_sources(
+    category_name: str = Path(..., min_length=1),
+    body: SourcesBulkRequest = ...,
+    db: AsyncSession = Depends(get_session),
+) -> dict:
+    return await categories_uc.detach_sources(db, category_name, body.source_ids)
 
 
 @router.get(

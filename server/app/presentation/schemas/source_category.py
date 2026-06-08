@@ -29,3 +29,7 @@ class SourceCategoryListResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+
+class SourcesBulkRequest(BaseModel):
+    source_ids: list[int] = Field(..., min_length=1, description="Список ID источников")
