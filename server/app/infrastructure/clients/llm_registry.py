@@ -121,11 +121,11 @@ def get_provider(provider_name: str | None = None):
         instance = GigaChatProvider(
             auth_key=s.gigachat_auth_key,
             scope=s.gigachat_scope,
-            proxy=proxy,
+            proxy=None,  # Sber — российский сервис, прокси не нужен
             use_new_api_url=s.gigachat_use_new_api_url,
         )
     elif provider_name == "yandexgpt":
-        instance = YandexGPTProvider(api_key=s.yandex_api_key, folder_id=s.yandex_folder_id, proxy=proxy)
+        instance = YandexGPTProvider(api_key=s.yandex_api_key, folder_id=s.yandex_folder_id, proxy=None)  # российский сервис
     else:
         raise ValueError(f"Неизвестный провайдер: {provider_name!r}")
 

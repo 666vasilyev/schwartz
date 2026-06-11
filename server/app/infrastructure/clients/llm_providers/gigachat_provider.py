@@ -145,7 +145,6 @@ class GigaChatProvider(LLMProvider):
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"].strip()
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def ask_json(
         self,
         prompt: str,
@@ -155,6 +154,7 @@ class GigaChatProvider(LLMProvider):
         temperature: float = 0.1,
         max_tokens: int = 512,
     ) -> Any:
+        # Нет @retry здесь — self.ask() уже имеет @retry(3), двойной ретрай даёт RetryError[RetryError]
         json_system = system + "\n\nОтвечай только валидным JSON-объектом без markdown-блоков."
         raw = await self.ask(
             prompt,
