@@ -8,7 +8,10 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from fastapi import HTTPException, status
+
 from app.infrastructure.clients import llm_registry
+from app.infrastructure.clients.llm_providers.openai_provider import ProxyUnavailableError
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -37,7 +40,13 @@ async def ask_llm(
     provider_name = provider or llm_registry.get_active()[0]
     logger.info("llm_ask_start", provider=provider_name, model=m)
     t0 = time.monotonic()
-    result = await p.ask(prompt, system=system, model=m, temperature=temperature, max_tokens=max_tokens)
+    try:
+        result = await p.ask(prompt, system=system, model=m, temperature=temperature, max_tokens=max_tokens)
+    except ProxyUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Proxy unavailable: {exc.proxy}",
+        ) from exc
     logger.info("llm_ask_done", provider=provider_name, model=m, elapsed_ms=round((time.monotonic() - t0) * 1000))
     return result
 
@@ -55,6 +64,12 @@ async def ask_llm_json(
     provider_name = provider or llm_registry.get_active()[0]
     logger.info("llm_ask_json_start", provider=provider_name, model=m)
     t0 = time.monotonic()
-    result = await p.ask_json(prompt, system=system, model=m, temperature=temperature, max_tokens=max_tokens)
+    try:
+        result = await p.ask_json(prompt, system=system, model=m, temperature=temperature, max_tokens=max_tokens)
+    except ProxyUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Proxy unavailable: {exc.proxy}",
+        ) from exc
     logger.info("llm_ask_json_done", provider=provider_name, model=m, elapsed_ms=round((time.monotonic() - t0) * 1000))
     return result

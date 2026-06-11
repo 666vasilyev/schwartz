@@ -110,7 +110,11 @@ def get_provider(provider_name: str | None = None):
     proxy = s.proxy or None
 
     if provider_name == "openai":
-        instance = OpenAIProvider(api_key=s.openai_api_key, proxy=proxy)
+        instance = OpenAIProvider(
+            api_key=s.openai_api_key,
+            proxy=proxy,
+            raise_on_proxy_unavailable=bool(proxy),  # только если прокси задан
+        )
     elif provider_name == "deepseek":
         instance = DeepSeekProvider(api_key=s.deepseek_api_key, proxy=proxy)
     elif provider_name == "gigachat":
