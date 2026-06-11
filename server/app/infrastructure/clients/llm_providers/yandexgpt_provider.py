@@ -1,10 +1,12 @@
 """YandexGPT provider.
 
-Auth:  Authorization: Api-Key <api_key>  (или IAM-токен: Bearer <iam_token>)
+Auth:  Authorization: Api-Key <api_key>
+       x-folder-id: <folder_id>
 API:   POST https://llm.api.cloud.yandex.net/foundationModels/v1/completion
 Model: gpt://<folder_id>/<model_name>/latest
 
-Формат запроса/ответа отличается от OpenAI: свои поля completionOptions, modelUri.
+Формат запроса отличается от OpenAI: поля modelUri, completionOptions, messages[].text.
+Документация: https://yandex.cloud/en/docs/foundation-models/quickstart/yandexgpt
 """
 from __future__ import annotations
 
@@ -24,9 +26,9 @@ _API_URL = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
 
 class YandexGPTProvider(LLMProvider):
     """
-    Провайдер YandexGPT.
-    api_key    — API-ключ сервисного аккаунта Яндекса.
-    folder_id  — идентификатор каталога Яндекс.Облако.
+    Провайдер YandexGPT (Яндекс.Облако).
+    api_key   — API-ключ сервисного аккаунта (IAM-токен не поддерживаем — он краткоживущий).
+    folder_id — идентификатор каталога Яндекс.Облако (b1g...).
     """
 
     def __init__(self, api_key: str, folder_id: str, *, proxy: str | None = None) -> None:
@@ -35,8 +37,7 @@ class YandexGPTProvider(LLMProvider):
         self._proxy = proxy
 
     def _model_uri(self, model: str) -> str:
-        # model может быть "yandexgpt", "yandexgpt-lite", "yandexgpt-32k" и т.п.
-        # Если уже полный URI (gpt://...) — используем как есть
+        """Собрать полный modelUri. Если уже gpt://... — оставить как есть."""
         if model.startswith("gpt://"):
             return model
         return f"gpt://{self._folder_id}/{model}/latest"
@@ -44,16 +45,25 @@ class YandexGPTProvider(LLMProvider):
     def _headers(self) -> dict[str, str]:
         return {
             "Authorization": f"Api-Key {self._api_key}",
+            "x-folder-id": self._folder_id,   # рекомендован документацией
             "Content-Type": "application/json",
+            "Accept": "application/json",
         }
 
-    def _build_body(self, prompt: str, system: str, model: str, temperature: float, max_tokens: int) -> dict:
+    def _build_body(
+        self,
+        prompt: str,
+        system: str,
+        model: str,
+        temperature: float,
+        max_tokens: int,
+    ) -> dict:
         return {
             "modelUri": self._model_uri(model),
             "completionOptions": {
                 "stream": False,
                 "temperature": temperature,
-                "maxTokens": str(max_tokens),
+                "maxTokens": str(max_tokens),  # API ожидает строку
             },
             "messages": [
                 {"role": "system", "text": system},
@@ -95,7 +105,13 @@ class YandexGPTProvider(LLMProvider):
         max_tokens: int = 512,
     ) -> Any:
         json_system = system + "\n\nОтвечай только валидным JSON-объектом без markdown-блоков."
-        raw = await self.ask(prompt, system=json_system, model=model, temperature=temperature, max_tokens=max_tokens)
+        raw = await self.ask(
+            prompt,
+            system=json_system,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
         raw = raw.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
