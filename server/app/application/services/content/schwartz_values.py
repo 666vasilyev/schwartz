@@ -77,22 +77,19 @@ async def extract_schwartz_values_from_text(
     if not text or not text.strip():
         return None
     t = text.strip()[:8000]
-    try:
-        result = await ask_llm_json(
-            f"Проанализируй фрагмент и верни JSON по инструкции (см. system).\n\n---\n{t}",
-            system=SCHWARTZ_LLM_SYSTEM,
-            provider=provider,
-            model=model,
-        )
-        if not isinstance(result, dict):
-            logger.warning("schwartz_llm_not_dict", type_=type(result).__name__)
-            return {k: 0.0 for k in SCHWARTZ_KEYS}
-        normalized = normalize_schwartz_payload(result)
-        logger.info("schwartz_extracted", max_key=max(normalized, key=normalized.get))
-        return normalized
-    except Exception as exc:
-        logger.warning("schwartz_extraction_failed", provider=provider, model=model, error=str(exc))
+    # Ошибки LLM (HTTPException 502) пробрасываются наверх — клиент получает реальную ошибку
+    result = await ask_llm_json(
+        f"Проанализируй фрагмент и верни JSON по инструкции (см. system).\n\n---\n{t}",
+        system=SCHWARTZ_LLM_SYSTEM,
+        provider=provider,
+        model=model,
+    )
+    if not isinstance(result, dict):
+        logger.warning("schwartz_llm_not_dict", type_=type(result).__name__)
         return {k: 0.0 for k in SCHWARTZ_KEYS}
+    normalized = normalize_schwartz_payload(result)
+    logger.info("schwartz_extracted", max_key=max(normalized, key=normalized.get))
+    return normalized
 
 
 def merge_details_with_schwartz(

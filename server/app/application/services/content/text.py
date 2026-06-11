@@ -27,18 +27,15 @@ async def analyze_text(
         return 0.0, "текст отсутствует"
 
     t = text.strip()[:_MAX_CHARS]
-    try:
-        result = await ask_llm_json(
-            f"Текст:\n\n{t}",
-            system=_SYSTEM,
-            provider=provider,
-            model=model,
-        )
-        score = float(result.get("score", 0.0))
-        score = max(0.0, min(1.0, score))
-        reason = str(result.get("reason", "") or "—")
-        logger.info("text_llm_done", score=round(score, 4))
-        return score, reason
-    except Exception as exc:
-        logger.warning("text_llm_failed", provider=provider, model=model, error=str(exc))
-        return 0.0, "ошибка анализа текста (LLM)"
+    # Ошибки LLM (HTTPException 502) пробрасываются наверх — клиент получает реальную ошибку
+    result = await ask_llm_json(
+        f"Текст:\n\n{t}",
+        system=_SYSTEM,
+        provider=provider,
+        model=model,
+    )
+    score = float(result.get("score", 0.0))
+    score = max(0.0, min(1.0, score))
+    reason = str(result.get("reason", "") or "—")
+    logger.info("text_llm_done", score=round(score, 4))
+    return score, reason
