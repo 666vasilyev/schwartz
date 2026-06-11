@@ -59,7 +59,10 @@ class OpenAIProvider(LLMProvider):
     ) -> None:
         self._proxy = proxy
         self._raise_on_proxy_unavailable = raise_on_proxy_unavailable
-        http_client = httpx.AsyncClient(proxy=proxy) if proxy else None
+        http_client = (
+            httpx.AsyncClient(proxy=proxy, timeout=httpx.Timeout(120.0, connect=15.0))
+            if proxy else None
+        )
         self._client = AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,

@@ -65,7 +65,7 @@ class GigaChatProvider(LLMProvider):
         self._scope = scope
         self._proxy = proxy
         self._api_url = _API_URL_NEW if use_new_api_url else _API_URL_OLD
-        self._verify_ssl = use_new_api_url  # False только для старого URL
+        self._verify_ssl = False  # Sber использует нестандартные сертификаты на всех эндпоинтах
         self._access_token: str | None = None
         self._token_expires_at: float = 0.0
 
