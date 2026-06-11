@@ -66,9 +66,13 @@ def normalize_schwartz_payload(raw: object) -> dict[str, float]:
 
 async def extract_schwartz_values_from_text(
     text: str | None,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> dict[str, float] | None:
     """
     Возвращает словарь из 10 ключей с дробями 0..1, либо None если текста нет.
+    provider/model — per-request override (опционально).
     """
     if not text or not text.strip():
         return None
@@ -77,6 +81,8 @@ async def extract_schwartz_values_from_text(
         result = await ask_llm_json(
             f"Проанализируй фрагмент и верни JSON по инструкции (см. system).\n\n---\n{t}",
             system=SCHWARTZ_LLM_SYSTEM,
+            provider=provider,
+            model=model,
         )
         if not isinstance(result, dict):
             logger.warning("schwartz_llm_not_dict", type_=type(result).__name__)

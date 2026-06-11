@@ -4,6 +4,18 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class LLMOverrideRequest(BaseModel):
+    """Опциональное тело запроса для переопределения LLM-провайдера и модели."""
+    provider: str | None = Field(
+        default=None,
+        description="Провайдер LLM: openai, deepseek, gigachat, yandexgpt. По умолчанию — активный.",
+    )
+    model: str | None = Field(
+        default=None,
+        description="Название модели. По умолчанию — активная модель провайдера.",
+    )
+
+
 class LemmaTextRequest(BaseModel):
     text: str = Field(..., min_length=1, description="Текст для анализа")
 

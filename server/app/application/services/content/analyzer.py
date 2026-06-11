@@ -34,16 +34,18 @@ async def analyze_post(
     post: PostInput,
     *,
     include_schwartz_values: bool = True,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> ContentAnalysisResult:
     """LLM: текст (деструктивность) + 10 измерений Шварца. В БД сохраняются только измерения Шварца (см. роут)."""
 
     async def _schwartz_or_none():
         if not include_schwartz_values:
             return None
-        return await extract_schwartz_values_from_text(post.text)
+        return await extract_schwartz_values_from_text(post.text, provider=provider, model=model)
 
     (text_score, text_reason), schwartz_values = await asyncio.gather(
-        analyze_text(post.text),
+        analyze_text(post.text, provider=provider, model=model),
         _schwartz_or_none(),
     )
 
@@ -93,7 +95,12 @@ class SourcePostsAnalysisBatch:
     skipped_empty_text: int
 
 
-async def analyze_source_posts_in_memory(posts: list[Post]) -> SourcePostsAnalysisBatch:
+async def analyze_source_posts_in_memory(
+    posts: list[Post],
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+) -> SourcePostsAnalysisBatch:
     """
     Для каждого поста с непустым текстом — отдельный вызов LLM (как analyze_post).
     Все такие вызовы запускаются параллельно через asyncio.gather.
@@ -115,7 +122,9 @@ async def analyze_source_posts_in_memory(posts: list[Post]) -> SourcePostsAnalys
                     vk_post_id=row.vk_post_id,
                     owner_id=row.owner_id,
                     text=row.text,
-                )
+                ),
+                provider=provider,
+                model=model,
             )
 
     analyses: list[ContentAnalysisResult] = (

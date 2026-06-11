@@ -4,7 +4,7 @@ GET  /analyze/source/{source_id}/stored — последний сохранён�
 """
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.content.lemma_scorer import LemmaLang, read_baseline
@@ -16,6 +16,7 @@ from app.presentation.schemas.analysis import (
     LemmaBaselineResponse,
     LemmaSourcesRequest,
     LemmaTextRequest,
+    LLMOverrideRequest,
     SourceAnalyzeResponse,
     SourceLemmaAnalysisResponse,
     SourceStoredSchwartzResponse,
@@ -154,11 +155,17 @@ async def analyze_source(
         le=2000,
         description="Ограничить число постов в порядке id (сначала старые)",
     ),
+    body: LLMOverrideRequest = Body(default_factory=LLMOverrideRequest),
     db: AsyncSession = Depends(get_session),
 ) -> SourceAnalyzeResponse:
     """
     VK: посты с `posts.owner_id == sources.vk_owner_id`. RSS: посты с `posts.source_id`.
     Для каждого с непустым текстом — LLM (деструктивность + Шварц). Средние записываются
     в `source_schwartz_analysis` (одна строка на источник, перезапись при каждом вызове).
+
+    Тело запроса опционально. Передайте `provider` и/или `model` чтобы переопределить
+    активный LLM для этого конкретного вызова.
     """
-    return await analyze_post.execute(db, source_id, limit=limit)
+    return await analyze_post.execute(
+        db, source_id, limit=limit, provider=body.provider, model=body.model
+    )

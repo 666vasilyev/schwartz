@@ -12,9 +12,26 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # ── LLM: активный провайдер и модель ─────────────────────────────────────
+    # Поддерживаемые провайдеры: openai, deepseek, gigachat, yandexgpt
+    llm_provider: str = "openai"
+    llm_model: str = "gpt-4o-mini"
+
     # OpenAI
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-4o-mini"  # deprecated — используйте llm_model
+
+    # DeepSeek
+    deepseek_api_key: str = ""
+
+    # Sber GigaChat — "clientId:clientSecret" или base64(clientId:clientSecret)
+    gigachat_auth_key: str = ""
+    gigachat_scope: str = "GIGACHAT_API_PERS"
+
+    # YandexGPT
+    yandex_api_key: str = ""
+    yandex_folder_id: str = ""
+
     # Прокси для исходящих запросов: LLM, Telegram MTProto (например socks5://127.0.0.1:1080)
     proxy: str = ""
 

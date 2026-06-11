@@ -17,13 +17,23 @@ _SYSTEM = (
 )
 
 
-async def analyze_text(text: str | None) -> tuple[float, str]:
+async def analyze_text(
+    text: str | None,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
+) -> tuple[float, str]:
     if not text or not text.strip():
         return 0.0, "текст отсутствует"
 
     t = text.strip()[:_MAX_CHARS]
     try:
-        result = await ask_llm_json(f"Текст:\n\n{t}", system=_SYSTEM)
+        result = await ask_llm_json(
+            f"Текст:\n\n{t}",
+            system=_SYSTEM,
+            provider=provider,
+            model=model,
+        )
         score = float(result.get("score", 0.0))
         score = max(0.0, min(1.0, score))
         reason = str(result.get("reason", "") or "—")

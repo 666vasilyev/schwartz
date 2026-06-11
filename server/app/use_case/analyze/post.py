@@ -21,6 +21,8 @@ async def execute(
     source_id: int,
     *,
     limit: int | None,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> SourceAnalyzeResponse:
     src = await get_source_by_id(db, source_id)
     if src is None:
@@ -52,7 +54,7 @@ async def execute(
         posts_total=n_total,
         posts_in_run=len(rows),
     )
-    batch = await analyze_source_posts_in_memory(rows)
+    batch = await analyze_source_posts_in_memory(rows, provider=provider, model=model)
     await replace_source_schwartz(db, source_id, batch.aggregate_schwartz)
 
     aggregate_rounded = {

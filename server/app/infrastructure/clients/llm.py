@@ -1,58 +1,55 @@
+"""LLM client facade.
+
+Маршрутизирует вызовы к активному провайдеру через llm_registry.
+Обратная совместимость: ask_llm / ask_llm_json с теми же сигнатурами.
+Per-request override: передайте provider= и/или model= для конкретного вызова.
+"""
+from __future__ import annotations
+
 from typing import Any
-import httpx
-from openai import AsyncOpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential
-from app.core.config import get_settings
+
+from app.infrastructure.clients import llm_registry
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
-settings = get_settings()
-
-_http_client = httpx.AsyncClient(proxy=settings.proxy) if settings.proxy else None
-_client = AsyncOpenAI(api_key=settings.openai_api_key, http_client=_http_client)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+def _resolve(provider: str | None, model: str | None):
+    """Вернуть (LLMProvider instance, model_name) с учётом per-request override."""
+    if provider is not None:
+        p = llm_registry.get_provider(provider)
+        # Если модель не указана — берём первую из каталога провайдера
+        if model is None:
+            models = llm_registry.MODELS_CATALOG.get(provider, {}).get("models", [])
+            model = models[0] if models else provider
+        return p, model
+    # Нет override — используем активный
+    return llm_registry.get_active_provider()
+
+
 async def ask_llm(
     prompt: str,
     system: str = "You are a helpful assistant.",
     temperature: float = 0.2,
     max_tokens: int = 512,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> str:
-    """Send a single-turn prompt and return the text reply."""
-    response = await _client.chat.completions.create(
-        model=settings.openai_model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    reply = response.choices[0].message.content or ""
-    logger.debug("llm_reply", tokens=response.usage.total_tokens if response.usage else None)
-    return reply.strip()
+    """Текстовый ответ LLM. provider/model — per-request override (опционально)."""
+    p, m = _resolve(provider, model)
+    return await p.ask(prompt, system=system, model=m, temperature=temperature, max_tokens=max_tokens)
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 async def ask_llm_json(
     prompt: str,
     system: str = "You are a helpful assistant. Always reply with valid JSON.",
     temperature: float = 0.1,
     max_tokens: int = 512,
+    *,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> Any:
-    """Like ask_llm but enforces JSON response format and auto-parses."""
-    import json
-
-    response = await _client.chat.completions.create(
-        model=settings.openai_model,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt},
-        ],
-    )
-    raw = response.choices[0].message.content or "{}"
-    return json.loads(raw)
+    """JSON-ответ LLM (авто-парсинг). provider/model — per-request override (опционально)."""
+    p, m = _resolve(provider, model)
+    return await p.ask_json(prompt, system=system, model=m, temperature=temperature, max_tokens=max_tokens)

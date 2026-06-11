@@ -10,6 +10,7 @@ from app.application.services.content import embedder
 from app.application.services.scheduler.runner import scheduler
 from app.application.services.worker.runner import worker as collection_worker
 from app.core.config import get_settings
+from app.infrastructure.clients import llm_registry
 from app.presentation.api.routes import collect, content, sources
 from app.presentation.api.routes.clusters import router as clusters_router
 from app.presentation.api.routes.source_categories import router as source_categories_router
@@ -18,6 +19,7 @@ from app.presentation.api.routes.posts import router as posts_router
 from app.presentation.api.routes.schedule import router as schedule_router
 from app.presentation.api.routes.vk import router as vk_router
 from app.presentation.api.routes.telegram import router as telegram_router
+from app.presentation.api.routes.llm_settings import router as llm_settings_router
 from app.presentation.middleware.request_logging import RequestLoggingMiddleware
 from app.utils.log_events import Events
 from app.utils.logger import configure_logging, get_logger
@@ -29,6 +31,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    llm_registry.init_from_settings()
     logger.info(Events.WORKER_HEARTBEAT, message="Application startup", environment=settings.app_env)
     if settings.clustering_enabled:
         # Прогреваем модель заранее — чтобы первый запрос к /clusters/run
@@ -98,6 +101,7 @@ app.include_router(telegram_router)
 app.include_router(schedule_router)
 app.include_router(clusters_router)
 app.include_router(source_categories_router)
+app.include_router(llm_settings_router)
 
 
 @app.get("/health", tags=["Health"], summary="Liveness probe")
