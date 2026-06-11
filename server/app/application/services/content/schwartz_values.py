@@ -91,7 +91,7 @@ async def extract_schwartz_values_from_text(
         logger.info("schwartz_extracted", max_key=max(normalized, key=normalized.get))
         return normalized
     except Exception as exc:
-        logger.warning("schwartz_extraction_failed", error=str(exc))
+        logger.warning("schwartz_extraction_failed", provider=provider, model=model, error=str(exc))
         return {k: 0.0 for k in SCHWARTZ_KEYS}
 
 

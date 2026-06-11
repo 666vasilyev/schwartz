@@ -17,6 +17,7 @@ import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.infrastructure.clients.llm_providers.base import LLMProvider
+from app.infrastructure.clients.llm_providers.json_utils import extract_json
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -112,10 +113,9 @@ class YandexGPTProvider(LLMProvider):
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-            raw = raw.strip()
-        return json.loads(raw)
+        logger.debug("yandexgpt_raw_response", raw=raw[:500])
+        try:
+            return extract_json(raw)
+        except ValueError as exc:
+            logger.warning("yandexgpt_json_parse_failed", error=str(exc), raw=raw[:500])
+            raise

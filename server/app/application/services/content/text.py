@@ -40,5 +40,5 @@ async def analyze_text(
         logger.info("text_llm_done", score=round(score, 4))
         return score, reason
     except Exception as exc:
-        logger.warning("text_llm_failed", error=str(exc))
+        logger.warning("text_llm_failed", provider=provider, model=model, error=str(exc))
         return 0.0, "ошибка анализа текста (LLM)"

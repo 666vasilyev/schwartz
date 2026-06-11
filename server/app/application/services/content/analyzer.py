@@ -24,8 +24,6 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 settings = get_settings()
 
-# Ограничение параллельных LLM-запросов: каждый analyze_post делает 2 вызова,
-# поэтому реальных HTTP-соединений будет _LLM_CONCURRENCY * 2
 _LLM_CONCURRENCY = 5
 _llm_semaphore = asyncio.Semaphore(_LLM_CONCURRENCY)
 
@@ -36,8 +34,18 @@ async def analyze_post(
     include_schwartz_values: bool = True,
     provider: str | None = None,
     model: str | None = None,
+    post_index: int | None = None,
+    posts_total: int | None = None,
 ) -> ContentAnalysisResult:
-    """LLM: текст (деструктивность) + 10 измерений Шварца. В БД сохраняются только измерения Шварца (см. роут)."""
+    """LLM: текст (деструктивность) + 10 измерений Шварца."""
+    prefix = f"[{post_index}/{posts_total}] " if post_index is not None else ""
+    text_preview = (post.text or "")[:80].replace("\n", " ")
+    logger.info(
+        "post_llm_start",
+        index=post_index,
+        total=posts_total,
+        text_preview=text_preview,
+    )
 
     async def _schwartz_or_none():
         if not include_schwartz_values:
@@ -50,17 +58,15 @@ async def analyze_post(
     )
 
     destruct_score = text_score
+    is_destructive = destruct_score >= settings.destruct_threshold
 
     logger.info(
-        "channel_score",
-        channel="text",
-        score=round(text_score, 4),
-        detail=text_reason or "—",
-    )
-    logger.info(
-        "post_analysis_complete",
+        "post_llm_done",
+        index=post_index,
+        total=posts_total,
         destruct_score=round(destruct_score, 4),
-        threshold=settings.destruct_threshold,
+        is_destructive=is_destructive,
+        reason=text_reason or "—",
     )
 
     details = merge_details_with_schwartz(text_reason, schwartz_values)
@@ -101,12 +107,6 @@ async def analyze_source_posts_in_memory(
     provider: str | None = None,
     model: str | None = None,
 ) -> SourcePostsAnalysisBatch:
-    """
-    Для каждого поста с непустым текстом — отдельный вызов LLM (как analyze_post).
-    Все такие вызовы запускаются параллельно через asyncio.gather.
-    Показатели по постам только в памяти; агрегат Шварца сохраняет вызывающий код в БД.
-    По паблику: среднее по каждому ключу Шварца по всем таким постам.
-    """
     to_analyze: list[Post] = []
     skipped_empty = 0
     for row in posts:
@@ -115,9 +115,22 @@ async def analyze_source_posts_in_memory(
         else:
             to_analyze.append(row)
 
-    async def _analyze_with_limit(row: Post) -> ContentAnalysisResult:
+    n_total = len(to_analyze)
+    logger.info(
+        "batch_llm_start",
+        posts_to_analyze=n_total,
+        posts_skipped_empty=skipped_empty,
+        provider=provider,
+        model=model,
+        concurrency=_LLM_CONCURRENCY,
+    )
+
+    completed = 0
+
+    async def _analyze_with_limit(row: Post, index: int) -> ContentAnalysisResult:
+        nonlocal completed
         async with _llm_semaphore:
-            return await analyze_post(
+            result = await analyze_post(
                 PostInput(
                     vk_post_id=row.vk_post_id,
                     owner_id=row.owner_id,
@@ -125,10 +138,15 @@ async def analyze_source_posts_in_memory(
                 ),
                 provider=provider,
                 model=model,
+                post_index=index,
+                posts_total=n_total,
             )
+            completed += 1
+            logger.info("batch_llm_progress", done=completed, total=n_total)
+            return result
 
     analyses: list[ContentAnalysisResult] = (
-        list(await asyncio.gather(*[_analyze_with_limit(row) for row in to_analyze]))
+        list(await asyncio.gather(*[_analyze_with_limit(row, i + 1) for i, row in enumerate(to_analyze)]))
         if to_analyze
         else []
     )
@@ -154,9 +172,9 @@ async def analyze_source_posts_in_memory(
 
     aggregate = _mean_schwartz(schwartz_vectors)
     logger.info(
-        "source_posts_analyzed_in_memory",
-        n_posts=len(snapshots),
-        skipped_empty=skipped_empty,
+        "batch_llm_done",
+        posts_analyzed=len(snapshots),
+        posts_skipped_empty=skipped_empty,
     )
     return SourcePostsAnalysisBatch(
         posts=snapshots,
