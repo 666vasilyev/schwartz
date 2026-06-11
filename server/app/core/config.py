@@ -26,7 +26,8 @@ class Settings(BaseSettings):
 
     # Sber GigaChat — "clientId:clientSecret" или base64(clientId:clientSecret)
     gigachat_auth_key: str = ""
-    gigachat_scope: str = "GIGACHAT_API_PERS"
+    gigachat_scope: str = "GIGACHAT_API_PERS"  # GIGACHAT_API_PERS | GIGACHAT_API_B2B | GIGACHAT_API_CORP
+    gigachat_use_new_api_url: bool = True  # True → api.giga.chat (SSL ok); False → gigachat.devices.sberbank.ru
 
     # YandexGPT
     yandex_api_key: str = ""

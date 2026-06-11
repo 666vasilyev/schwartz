@@ -114,7 +114,12 @@ def get_provider(provider_name: str | None = None):
     elif provider_name == "deepseek":
         instance = DeepSeekProvider(api_key=s.deepseek_api_key, proxy=proxy)
     elif provider_name == "gigachat":
-        instance = GigaChatProvider(auth_key=s.gigachat_auth_key, scope=s.gigachat_scope, proxy=proxy)
+        instance = GigaChatProvider(
+            auth_key=s.gigachat_auth_key,
+            scope=s.gigachat_scope,
+            proxy=proxy,
+            use_new_api_url=s.gigachat_use_new_api_url,
+        )
     elif provider_name == "yandexgpt":
         instance = YandexGPTProvider(api_key=s.yandex_api_key, folder_id=s.yandex_folder_id, proxy=proxy)
     else:
