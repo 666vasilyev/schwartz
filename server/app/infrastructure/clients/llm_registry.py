@@ -37,12 +37,9 @@ MODELS_CATALOG: dict[str, dict[str, Any]] = {
     "gigachat": {
         "label": "GigaChat (Сбер)",
         "models": [
-            "GigaChat",
-            "GigaChat-Pro",
-            "GigaChat-Max",
-            "GigaChat-2",
-            "GigaChat-2-Pro",
-            "GigaChat-2-Max",
+            "GigaChat-2-Lite",   # быстрая, 65 ₽/1M токенов
+            "GigaChat-2-Pro",    # продвинутая, 500 ₽/1M токенов
+            "GigaChat-2-Max",    # максимальная, 650 ₽/1M токенов
         ],
     },
     "yandexgpt": {
