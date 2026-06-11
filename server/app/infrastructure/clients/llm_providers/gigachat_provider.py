@@ -122,6 +122,7 @@ class GigaChatProvider(LLMProvider):
         max_tokens: int = 512,
     ) -> str:
         token = await self._get_token()
+        logger.info("gigachat_request", api_url=self._api_url, model=model, verify_ssl=self._verify_ssl)
         async with self._http_client() as client:
             resp = await client.post(
                 self._api_url,
@@ -138,12 +139,21 @@ class GigaChatProvider(LLMProvider):
                 },
                 timeout=60,
             )
+            logger.info("gigachat_response", status=resp.status_code, body_preview=resp.text[:300])
             if resp.status_code == 401:
-                # Токен протух — сбрасываем, tenacity сделает повтор
                 self._access_token = None
                 resp.raise_for_status()
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"].strip()
+            if not resp.is_success:
+                logger.warning(
+                    "gigachat_http_error",
+                    status=resp.status_code,
+                    body=resp.text[:500],
+                )
+                resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"].strip()
+            logger.info("gigachat_ok", model=model, content_len=len(content))
+            return content
 
     async def ask_json(
         self,
