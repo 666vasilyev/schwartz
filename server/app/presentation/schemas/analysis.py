@@ -107,25 +107,21 @@ class CategoryLemmaByDayResponse(BaseModel):
     )
 
 
-class CategorySeriesDayItem(BaseModel):
-    """Значения ЦКМ за один период (для временно́го ряда по категории)."""
+class CategoriesSchwartzTimeseriesResponse(BaseModel):
+    """
+    Временны́е ряды ЦКМ по нескольким категориям.
 
-    period_start: date = Field(description="Начало периода (день, понедельник недели или первый день месяца)")
-    posts_count: int = Field(description="Постов с непустым текстом, прошедших анализ за период")
-    schwartz: dict[str, float] = Field(
-        ...,
-        description="10 измерений ЦКМ (нормировано: сумма = 1.0; нули если постов нет)",
-    )
+    Структура data: data[параметр_шварца][категория] = [значение_за_период_0, значение_за_период_1, ...]
+    Индексы значений соответствуют индексам в списке periods.
+    """
 
-
-class CategorySeriesResponse(BaseModel):
-    """Временно́й ряд ЦКМ для одной категории."""
-
-    category_name: str
-    lang: str
     granularity: str = Field(description="Гранулярность: day, week, month")
-    periods: list[CategorySeriesDayItem] = Field(
-        description="По одной записи на каждый период диапазона (включая пустые с нулями), по возрастанию period_start",
+    periods: list[date] = Field(description="Список начал периодов по возрастанию")
+    posts_count: dict[str, list[int]] = Field(
+        description="posts_count[категория] = [кол-во постов за период_0, за период_1, ...]",
+    )
+    data: dict[str, dict[str, list[float]]] = Field(
+        description="data[параметр_шварца][категория] = [значение за каждый период]",
     )
 
 

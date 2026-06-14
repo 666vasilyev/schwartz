@@ -12,9 +12,9 @@ from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
 from app.infrastructure.clients.llm import ask_llm
 from app.presentation.schemas.analysis import (
+    CategoriesSchwartzTimeseriesResponse,
     CategoryLemmaByDayResponse,
     CategoryLangItem,
-    CategorySeriesResponse,
     LemmaAnalysisResult,
     LemmaBaselineResponse,
     LemmaCategoriesRequest,
@@ -123,8 +123,8 @@ async def analyze_categories_lemma(
 
 @router.post(
     "/lemma/categories/granularity/{granularity}",
-    response_model=list[CategorySeriesResponse],
-    summary="Временны́е ряды ЦКМ по нескольким категориям (один ряд на категорию, один элемент на период)",
+    response_model=CategoriesSchwartzTimeseriesResponse,
+    summary="Временны́е ряды ЦКМ по нескольким категориям: data[параметр][категория] = [значения по периодам]",
 )
 async def analyze_categories_lemma_by_day(
     granularity: TimeGranularity,
@@ -132,7 +132,7 @@ async def analyze_categories_lemma_by_day(
     date_from: date = Query(..., description="Начало диапазона (включительно)"),
     date_to: date = Query(..., description="Конец диапазона (включительно)"),
     db: AsyncSession = Depends(get_session),
-) -> list[CategorySeriesResponse]:
+) -> CategoriesSchwartzTimeseriesResponse:
     if date_to < date_from:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
