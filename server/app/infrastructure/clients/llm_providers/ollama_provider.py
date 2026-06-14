@@ -22,9 +22,12 @@ class OllamaProvider(OpenAIProvider):
     Провайдер для локального Ollama-сервера.
 
     base_url — адрес Ollama, например http://10.0.21.10:11434/v1
-    Ollama поддерживает OpenAI-совместимый API, но response_format=json_object
-    доступен не на всех моделях → используем extract_json() на текстовом ответе.
+    Ollama поддерживает response_format={"type":"json_object"} через OpenAI-совместимый API,
+    поэтому ask_json использует базовый OpenAIProvider.ask_json.
+    Если модель не поддерживает response_format — включить USE_EXTRACT_JSON = True.
     """
+
+    USE_EXTRACT_JSON = False  # True → plain text + extract_json вместо response_format
 
     def __init__(self, base_url: str) -> None:
         super().__init__(
@@ -33,7 +36,6 @@ class OllamaProvider(OpenAIProvider):
             proxy=None,            # локальная сеть, прокси не нужен
             raise_on_proxy_unavailable=False,
         )
-        self._base_url = base_url
 
     async def ask_json(
         self,
@@ -44,7 +46,14 @@ class OllamaProvider(OpenAIProvider):
         temperature: float = 0.1,
         max_tokens: int = 512,
     ) -> Any:
-        # Ollama не всегда поддерживает response_format → plain text + extract_json
+        if not self.USE_EXTRACT_JSON:
+            # Ollama поддерживает response_format=json_object — используем базовый метод
+            return await super().ask_json(
+                prompt, system=system, model=model,
+                temperature=temperature, max_tokens=max_tokens,
+            )
+
+        # Fallback: plain text + extract_json (если модель не поддерживает response_format)
         raw = await self.ask(
             prompt,
             system=system + "\n\nОтвечай только валидным JSON-объектом без markdown-блоков.",
