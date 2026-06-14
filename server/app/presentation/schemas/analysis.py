@@ -3,6 +3,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.application.services.content.lemma_scorer import LemmaLang
+
 
 class LLMOverrideRequest(BaseModel):
     """Опциональное тело запроса для переопределения LLM-провайдера и модели."""
@@ -24,8 +26,13 @@ class LemmaSourcesRequest(BaseModel):
     source_ids: list[int] = Field(..., min_length=1, description="Список ID источников")
 
 
+class CategoryLangItem(BaseModel):
+    category_name: str = Field(..., description="Имя категории")
+    lang: LemmaLang = Field(LemmaLang.ru, description="Язык словаря для этой категории")
+
+
 class LemmaCategoriesRequest(BaseModel):
-    category_names: list[str] = Field(..., min_length=1, description="Список имён категорий")
+    categories: list[CategoryLangItem] = Field(..., min_length=1, description="Список категорий с языком")
 
 
 class LemmaBaselineResponse(BaseModel):

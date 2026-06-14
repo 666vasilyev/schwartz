@@ -12,6 +12,7 @@ from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
 from app.presentation.schemas.analysis import (
     CategoryLemmaByDayResponse,
+    CategoryLangItem,
     LemmaAnalysisResult,
     LemmaBaselineResponse,
     LemmaCategoriesRequest,
@@ -103,14 +104,14 @@ async def analyze_source_lemma(
 )
 async def analyze_categories_lemma(
     body: LemmaCategoriesRequest,
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
     limit: int | None = Query(None, ge=1, description="Последние N постов на категорию (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
     db: AsyncSession = Depends(get_session),
 ) -> list[SourceLemmaAnalysisResponse]:
+    categories = [(item.category_name, item.lang) for item in body.categories]
     return await analyze_lemma_categories.execute(
-        db, body.category_names, lang=lang, limit=limit, date_from=date_from, date_to=date_to
+        db, categories, limit=limit, date_from=date_from, date_to=date_to
     )
 
 

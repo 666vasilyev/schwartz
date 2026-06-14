@@ -15,19 +15,20 @@ from app.use_case.analyze._lemma_aggregate import aggregate_categories, aggregat
 
 async def execute(
     db: AsyncSession,
-    category_names: list[str],
+    categories: list[tuple[str, LemmaLang]],
     *,
-    lang: LemmaLang = LemmaLang.ru,
     limit: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
 ) -> list[SourceLemmaAnalysisResponse]:
     """
+    categories — список пар (category_name, lang). Каждая категория может иметь свой язык словаря.
     Один запрос достаёт посты для всех запрошенных категорий.
     Пост привязан к категории через: post.source_id → source_category_links.source_id → category_name.
-    Если источник входит в несколько категорий, его посты учитываются в каждой.
-    Если источник в нескольких категориях из запроса — посты попадут в обе; это ожидаемо.
     """
+    category_names = [name for name, _ in categories]
+    lang_by_cat: dict[str, LemmaLang] = {name: lang for name, lang in categories}
+
     q = (
         select(Post, source_category_link.c.category_name)
         .join(source_category_link, Post.source_id == source_category_link.c.source_id)
@@ -56,6 +57,7 @@ async def execute(
     # Скоринг и сборка результатов в том же порядке, что входной список
     results: list[SourceLemmaAnalysisResponse] = []
     for cat_name in category_names:
+        lang = lang_by_cat[cat_name]
         posts = posts_by_cat.get(cat_name, [])
         texts = [p.text or "" for p in posts]
         non_empty = [t for t in texts if t.strip()]
