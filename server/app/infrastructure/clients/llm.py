@@ -1,9 +1,8 @@
 """LLM client facade.
 
-Маршрутизирует вызовы к активному провайдеру через llm_registry.
+Маршрутизирует вызовы к активному Ollama-провайдеру через llm_registry.
 Per-request override: передайте provider= и/или model= для конкретного вызова.
-Все ошибки провайдера конвертируются в HTTPException(502) — клиент получает
-читаемое сообщение об ошибке вместо пустого/нулевого ответа.
+Все ошибки провайдера конвертируются в HTTPException(502).
 """
 from __future__ import annotations
 
@@ -14,7 +13,6 @@ from fastapi import HTTPException, status
 from tenacity import RetryError
 
 from app.infrastructure.clients import llm_registry
-from app.infrastructure.clients.llm_providers.openai_provider import ProxyUnavailableError
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -31,7 +29,6 @@ def _resolve(provider: str | None, model: str | None):
 
 
 def _unwrap_retry_error(exc: RetryError) -> str:
-    """Извлечь читаемое сообщение из tenacity RetryError."""
     try:
         original = exc.last_attempt.exception()
         return f"{type(original).__name__}: {str(original)[:300]}"
@@ -40,9 +37,7 @@ def _unwrap_retry_error(exc: RetryError) -> str:
 
 
 def _to_http_502(exc: Exception, provider: str, model: str) -> HTTPException:
-    if isinstance(exc, ProxyUnavailableError):
-        detail = f"Proxy unavailable: {exc.proxy}"
-    elif isinstance(exc, RetryError):
+    if isinstance(exc, RetryError):
         detail = f"LLM [{provider}/{model}] failed after retries: {_unwrap_retry_error(exc)}"
     else:
         detail = f"LLM [{provider}/{model}] error: {type(exc).__name__}: {str(exc)[:300]}"
@@ -65,7 +60,7 @@ async def ask_llm(
     t0 = time.monotonic()
     try:
         result = await p.ask(prompt, system=system, model=m, temperature=temperature, max_tokens=max_tokens)
-    except (ProxyUnavailableError, RetryError, Exception) as exc:
+    except (RetryError, Exception) as exc:
         raise _to_http_502(exc, provider_name, m) from exc
     logger.info("llm_ask_done", provider=provider_name, model=m, elapsed_ms=round((time.monotonic() - t0) * 1000))
     return result
@@ -86,7 +81,7 @@ async def ask_llm_json(
     t0 = time.monotonic()
     try:
         result = await p.ask_json(prompt, system=system, model=m, temperature=temperature, max_tokens=max_tokens)
-    except (ProxyUnavailableError, RetryError, Exception) as exc:
+    except (RetryError, Exception) as exc:
         raise _to_http_502(exc, provider_name, m) from exc
     logger.info("llm_ask_json_done", provider=provider_name, model=m, elapsed_ms=round((time.monotonic() - t0) * 1000))
     return result

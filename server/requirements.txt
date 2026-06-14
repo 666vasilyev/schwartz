@@ -10,7 +10,6 @@ tenacity>=8.0
 pydantic>=2.0
 pydantic-settings>=2.0
 structlog>=24.0
-openai>=1.0
 feedparser>=6.0
 python-multipart
 telethon>=1.36
