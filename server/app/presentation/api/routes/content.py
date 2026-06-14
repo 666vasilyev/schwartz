@@ -14,6 +14,7 @@ from app.presentation.schemas.analysis import (
     CategoryLemmaByDayResponse,
     LemmaAnalysisResult,
     LemmaBaselineResponse,
+    LemmaCategoriesRequest,
     LemmaSourcesRequest,
     LemmaTextRequest,
     LLMOverrideRequest,
@@ -23,6 +24,7 @@ from app.presentation.schemas.analysis import (
 )
 from app.use_case.analyze import get_stored as analyze_get_stored
 from app.use_case.analyze import lemma as analyze_lemma
+from app.use_case.analyze import lemma_categories as analyze_lemma_categories
 from app.use_case.analyze import lemma_category as analyze_lemma_category
 from app.use_case.analyze import lemma_category_by_day as analyze_lemma_category_by_day
 from app.use_case.analyze import lemma_source as analyze_lemma_source
@@ -91,6 +93,24 @@ async def analyze_source_lemma(
 ) -> list[SourceLemmaAnalysisResponse]:
     return await analyze_lemma_source.execute(
         db, body.source_ids, lang=lang, limit=limit, date_from=date_from, date_to=date_to
+    )
+
+
+@router.post(
+    "/lemma/categories",
+    response_model=list[SourceLemmaAnalysisResponse],
+    summary="ЦКМ по списку категорий (словарный метод, один результат на категорию)",
+)
+async def analyze_categories_lemma(
+    body: LemmaCategoriesRequest,
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+    limit: int | None = Query(None, ge=1, description="Последние N постов на категорию (по дате публикации)"),
+    date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
+    date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
+    db: AsyncSession = Depends(get_session),
+) -> list[SourceLemmaAnalysisResponse]:
+    return await analyze_lemma_categories.execute(
+        db, body.category_names, lang=lang, limit=limit, date_from=date_from, date_to=date_to
     )
 
 

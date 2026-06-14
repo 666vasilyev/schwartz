@@ -24,6 +24,10 @@ class LemmaSourcesRequest(BaseModel):
     source_ids: list[int] = Field(..., min_length=1, description="Список ID источников")
 
 
+class LemmaCategoriesRequest(BaseModel):
+    category_names: list[str] = Field(..., min_length=1, description="Список имён категорий")
+
+
 class LemmaBaselineResponse(BaseModel):
     label: str
     schwartz_values: dict[str, float]
