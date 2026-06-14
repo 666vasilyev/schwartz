@@ -31,14 +31,18 @@ CSV_COLUMNS: tuple[str, ...] = (
 
 class LemmaLang(str, Enum):
     ru = "ru"
-    eng = "eng"
-    de = "de"
+    ru_un = "ru_un"
+    usa = "usa"
+    usa_un = "usa_un"
+    frg = "frg"
 
 
 _CSV_FILENAMES = {
-    LemmaLang.ru: "lemma_coefficients_RUS.csv",
-    LemmaLang.eng: "lemma_coefficients_ENG.csv",
-    LemmaLang.de: "lemma_coefficients_DE.csv",
+    LemmaLang.ru: "ru.csv",
+    LemmaLang.ru_un: "ru_un.csv",
+    LemmaLang.usa: "usa.csv",
+    LemmaLang.usa_un: "usa_un.csv",
+    LemmaLang.frg: "frg.csv",
 }
 
 _LEMMA_DIRS: tuple[Path, ...] = (
@@ -66,6 +70,18 @@ def _clean_lemma(raw: str) -> str:
 LemmaScoreResult = tuple[dict[str, float], list[str], dict[str, float]]
 
 
+def _detect_encoding(path: Path) -> str:
+    """Try UTF-8 first (incl. BOM), fall back to cp1251."""
+    for enc in ("utf-8-sig", "utf-8", "cp1251"):
+        try:
+            with open(path, encoding=enc, newline="") as fh:
+                fh.read()
+            return enc
+        except UnicodeDecodeError:
+            continue
+    return "cp1251"
+
+
 @lru_cache(maxsize=8)
 def _load_index(lang: LemmaLang):
     try:
@@ -78,8 +94,9 @@ def _load_index(lang: LemmaLang):
     phrase_dict: dict[str, dict[str, float]] = {}
     categories_dict: dict[str, list[str]] = {}
 
+    encoding = _detect_encoding(path)
     try:
-        with open(path, encoding="cp1251", newline="") as fh:
+        with open(path, encoding=encoding, newline="") as fh:
             reader = csv.reader(fh, delimiter=";")
             next(reader, None)
             for row in reader:
@@ -96,7 +113,10 @@ def _load_index(lang: LemmaLang):
                         weights[col] = 0.0
                 if not any(v > 0 for v in weights.values()):
                     continue
-                raw_cat = row[11].strip() if len(row) > 11 else ""
+                # Columns 11+ are category data; join non-empty parts to support
+                # files where the category field spans multiple columns (e.g. frg.csv).
+                cat_parts = [row[i].strip() for i in range(11, len(row)) if row[i].strip()]
+                raw_cat = " / ".join(cat_parts)
                 cats = [c.strip().casefold() for c in raw_cat.split("/") if c.strip()] if raw_cat else []
                 categories_dict[lemma] = cats
                 if " " in lemma:

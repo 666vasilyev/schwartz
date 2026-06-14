@@ -39,7 +39,7 @@ router = APIRouter(prefix="/analyze", tags=["Content Analysis"])
     summary="Базовое распределение ЦКМ для языка (эталонные значения из словаря)",
 )
 def get_lemma_baseline(
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
 ) -> LemmaBaselineResponse:
     result = read_baseline(lang)
     if result is None:
@@ -55,7 +55,7 @@ def get_lemma_baseline(
 )
 def analyze_text_lemma(
     body: LemmaTextRequest,
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
 ) -> LemmaAnalysisResult:
     return analyze_lemma.execute(body.text, lang)
 
@@ -67,7 +67,7 @@ def analyze_text_lemma(
 )
 async def analyze_post_lemma(
     post_id: int,
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
     db: AsyncSession = Depends(get_session),
 ) -> LemmaAnalysisResult:
     post = await get_post_by_id(db, post_id)
@@ -85,7 +85,7 @@ async def analyze_post_lemma(
 )
 async def analyze_source_lemma(
     body: LemmaSourcesRequest,
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
     limit: int | None = Query(None, ge=1, description="Последние N постов (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
@@ -103,7 +103,7 @@ async def analyze_source_lemma(
 )
 async def analyze_categories_lemma(
     body: LemmaCategoriesRequest,
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
     limit: int | None = Query(None, ge=1, description="Последние N постов на категорию (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
@@ -121,7 +121,7 @@ async def analyze_categories_lemma(
 )
 async def analyze_category_lemma(
     category_name: str,
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
     limit: int | None = Query(None, ge=1, description="Последние N постов (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
@@ -139,7 +139,7 @@ async def analyze_category_lemma(
 )
 async def analyze_category_lemma_by_day(
     category_name: str,
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, eng, de"),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
     limit: int | None = Query(None, ge=1, description="Последние N постов категории (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
