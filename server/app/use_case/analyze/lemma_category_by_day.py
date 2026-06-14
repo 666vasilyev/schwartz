@@ -1,4 +1,4 @@
-"""GET /analyze/lemma/category/{category_name}/by_day — ЦКМ категории по словарному методу, в разбивке по дням."""
+"""GET /analyze/lemma/category/{category_name}/by_day — ЦКМ категории в разбивке по периодам."""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -12,6 +12,7 @@ from app.application.services.content.lemma_scorer import LemmaLang, score_texts
 from app.infrastructure.db.orm.models import Post, SourceCategoryModel, source_category_link
 from app.presentation.schemas.analysis import CategoryLemmaByDayResponse, CategoryLemmaDayItem
 from app.use_case.analyze._lemma_aggregate import aggregate_categories, aggregate_vectors
+from app.use_case.analyze._time_utils import TimeGranularity, period_range, period_start
 
 
 async def execute(
@@ -19,6 +20,7 @@ async def execute(
     category_name: str,
     *,
     lang: LemmaLang = LemmaLang.ru,
+    granularity: TimeGranularity = TimeGranularity.day,
     limit: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -45,35 +47,60 @@ async def execute(
     if limit is not None:
         q = q.limit(limit)
 
-    result = await db.execute(q)
-    posts = list(result.scalars().all())
+    posts = list((await db.execute(q)).scalars().all())
 
-    # Группируем по дате публикации (посты без published_at в разбивку по дням не попадают)
-    posts_by_day: dict[date, list[Post]] = defaultdict(list)
+    # Группируем по началу периода (только посты с датой)
+    posts_by_period: dict[date, list[Post]] = defaultdict(list)
     for post in posts:
         if post.published_at is not None:
-            posts_by_day[post.published_at.date()].append(post)
+            key = period_start(post.published_at.date(), granularity)
+            posts_by_period[key].append(post)
 
-    days: list[CategoryLemmaDayItem] = []
-    for day in sorted(posts_by_day.keys(), reverse=True):
-        day_posts = posts_by_day[day]
-        texts = [p.text or "" for p in day_posts]
+    # Если задан диапазон — заполняем пустые периоды нулями; иначе — только периоды с постами
+    if date_from is not None and date_to is not None:
+        all_periods = period_range(date_from.date(), date_to.date(), granularity)
+    else:
+        all_periods = sorted(posts_by_period.keys(), reverse=True)
+
+    zero_schwartz = {k: 0.0 for k in (aggregate_vectors([]))}
+
+    items: list[CategoryLemmaDayItem] = []
+    for p in (all_periods if (date_from is None) else reversed(list(all_periods))):
+        period_posts = posts_by_period.get(p, [])
+        texts = [post.text or "" for post in period_posts]
         non_empty = [t for t in texts if t.strip()]
         skipped = len(texts) - len(non_empty)
+
+        if not non_empty:
+            items.append(CategoryLemmaDayItem(
+                period_start=p,
+                posts_total=len(period_posts),
+                posts_analyzed=0,
+                posts_skipped_empty=skipped,
+                aggregate_schwartz=dict(zero_schwartz),
+                aggregate_categories={},
+            ))
+            continue
 
         scores_list = await score_texts_batch(non_empty, lang)
         vectors = [s for s, _, _c in scores_list]
         cat_freqs = [c for _s, _, c in scores_list]
 
-        days.append(
-            CategoryLemmaDayItem(
-                date=day,
-                posts_total=len(day_posts),
-                posts_analyzed=len(vectors),
-                posts_skipped_empty=skipped,
-                aggregate_schwartz=aggregate_vectors(vectors),
-                aggregate_categories=aggregate_categories(cat_freqs),
-            )
-        )
+        items.append(CategoryLemmaDayItem(
+            period_start=p,
+            posts_total=len(period_posts),
+            posts_analyzed=len(vectors),
+            posts_skipped_empty=skipped,
+            aggregate_schwartz=aggregate_vectors(vectors),
+            aggregate_categories=aggregate_categories(cat_freqs),
+        ))
 
-    return CategoryLemmaByDayResponse(category_name=category_name, days=days)
+    # Без явного диапазона — сортируем по убыванию
+    if date_from is None:
+        items.sort(key=lambda x: x.period_start, reverse=True)
+
+    return CategoryLemmaByDayResponse(
+        category_name=category_name,
+        granularity=granularity.value,
+        periods=items,
+    )

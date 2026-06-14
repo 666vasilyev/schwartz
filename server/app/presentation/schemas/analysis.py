@@ -4,6 +4,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.application.services.content.lemma_scorer import LemmaLang
+from app.use_case.analyze._time_utils import TimeGranularity
+
+__all__ = ["TimeGranularity"]  # re-export so routes can import from one place
 
 
 class LLMOverrideRequest(BaseModel):
@@ -77,37 +80,38 @@ class SourceLemmaAnalysisResponse(BaseModel):
 
 
 class CategoryLemmaDayItem(BaseModel):
-    """ЦКМ категории по словарному методу за один день (по дате публикации постов)."""
+    """ЦКМ категории по словарному методу за один период (день / неделя / месяц)."""
 
-    date: date
-    posts_total: int = Field(description="Всего постов категории за этот день")
+    period_start: date = Field(description="Начало периода (день, понедельник недели или первый день месяца)")
+    posts_total: int = Field(description="Всего постов категории за период")
     posts_analyzed: int = Field(description="Постов с непустым текстом, прошедших анализ")
     posts_skipped_empty: int = 0
     aggregate_schwartz: dict[str, float] = Field(
         ...,
-        description="Среднее по 10 измерениям ЦКМ за день (нормировано: сумма = 1.0)",
+        description="Среднее по 10 измерениям ЦКМ за период (нормировано: сумма = 1.0)",
     )
     aggregate_categories: dict[str, float] = Field(
         default_factory=dict,
-        description="Нормированная частота категорий слов за день (сумма = 1.0)",
+        description="Нормированная частота категорий слов за период (сумма = 1.0)",
     )
 
 
 class CategoryLemmaByDayResponse(BaseModel):
-    """ЦКМ категории по словарному методу, в разбивке по дням публикации (вместо одного агрегата за весь период)."""
+    """ЦКМ категории по словарному методу, в разбивке по периодам (день / неделя / месяц)."""
 
     category_name: str
-    days: list[CategoryLemmaDayItem] = Field(
+    granularity: str = Field(description="Гранулярность: day, week, month")
+    periods: list[CategoryLemmaDayItem] = Field(
         default_factory=list,
-        description="По одной записи на каждый день, где есть посты; отсортировано по убыванию даты",
+        description="По одной записи на каждый период; отсортировано по убыванию period_start",
     )
 
 
 class CategorySeriesDayItem(BaseModel):
-    """Значения ЦКМ за один день (для временно́го ряда по категории)."""
+    """Значения ЦКМ за один период (для временно́го ряда по категории)."""
 
-    date: date
-    posts_count: int = Field(description="Постов с непустым текстом, прошедших анализ за этот день")
+    period_start: date = Field(description="Начало периода (день, понедельник недели или первый день месяца)")
+    posts_count: int = Field(description="Постов с непустым текстом, прошедших анализ за период")
     schwartz: dict[str, float] = Field(
         ...,
         description="10 измерений ЦКМ (нормировано: сумма = 1.0; нули если постов нет)",
@@ -119,8 +123,9 @@ class CategorySeriesResponse(BaseModel):
 
     category_name: str
     lang: str
-    days: list[CategorySeriesDayItem] = Field(
-        description="По одной записи на каждый день диапазона (включая пустые дни с нулями), по возрастанию даты",
+    granularity: str = Field(description="Гранулярность: day, week, month")
+    periods: list[CategorySeriesDayItem] = Field(
+        description="По одной записи на каждый период диапазона (включая пустые с нулями), по возрастанию period_start",
     )
 
 

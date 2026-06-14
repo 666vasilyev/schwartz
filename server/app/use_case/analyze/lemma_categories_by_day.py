@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime as dt
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,15 +11,7 @@ from app.application.services.content.lemma_scorer import CSV_COLUMNS, LemmaLang
 from app.infrastructure.db.orm.models import Post, source_category_link
 from app.presentation.schemas.analysis import CategorySeriesDayItem, CategorySeriesResponse
 from app.use_case.analyze._lemma_aggregate import aggregate_vectors
-
-
-def _date_range(start: date, end: date) -> list[date]:
-    days: list[date] = []
-    cur = start
-    while cur <= end:
-        days.append(cur)
-        cur += timedelta(days=1)
-    return days
+from app.use_case.analyze._time_utils import TimeGranularity, period_range, period_start
 
 
 async def execute(
@@ -28,17 +20,17 @@ async def execute(
     *,
     date_from: date,
     date_to: date,
+    granularity: TimeGranularity = TimeGranularity.day,
 ) -> list[CategorySeriesResponse]:
     """
     categories — список пар (category_name, lang).
     Возвращает временно́й ряд ЦКМ для каждой категории за диапазон [date_from, date_to].
-    Дни без постов заполняются нулями.
+    Периоды без постов заполняются нулями.
     """
     category_names = [name for name, _ in categories]
     lang_by_cat: dict[str, LemmaLang] = {name: lang for name, lang in categories}
     zero_schwartz = {k: 0.0 for k in CSV_COLUMNS}
 
-    from datetime import datetime as dt
     date_from_dt = dt.combine(date_from, dt.min.time())
     date_to_dt = dt.combine(date_to, dt.max.time())
 
@@ -53,37 +45,42 @@ async def execute(
 
     rows = (await db.execute(q)).all()
 
-    # posts_by_cat_day[(cat_name, day)] = [Post, ...]
-    posts_by_cat_day: dict[tuple[str, date], list[Post]] = defaultdict(list)
+    # posts_by[(cat_name, period_start)] = [Post, ...]  (только непустые тексты)
+    posts_by: dict[tuple[str, date], list[Post]] = defaultdict(list)
     for post, cat_name in rows:
         if post.published_at is not None and post.text and post.text.strip():
-            posts_by_cat_day[(cat_name, post.published_at.date())].append(post)
+            key = (cat_name, period_start(post.published_at.date(), granularity))
+            posts_by[key].append(post)
 
-    all_days = _date_range(date_from, date_to)
+    all_periods = period_range(date_from, date_to, granularity)
 
     results: list[CategorySeriesResponse] = []
     for cat_name in category_names:
         lang = lang_by_cat[cat_name]
-        days: list[CategorySeriesDayItem] = []
+        items: list[CategorySeriesDayItem] = []
 
-        for day in all_days:
-            day_posts = posts_by_cat_day.get((cat_name, day), [])
-            if not day_posts:
-                days.append(CategorySeriesDayItem(date=day, posts_count=0, schwartz=dict(zero_schwartz)))
+        for p in all_periods:
+            period_posts = posts_by.get((cat_name, p), [])
+            if not period_posts:
+                items.append(CategorySeriesDayItem(
+                    period_start=p, posts_count=0, schwartz=dict(zero_schwartz),
+                ))
                 continue
 
-            texts = [p.text or "" for p in day_posts]
+            texts = [post.text or "" for post in period_posts]
             scores_list = await score_texts_batch(texts, lang)
             vectors = [s for s, _, _ in scores_list]
+            items.append(CategorySeriesDayItem(
+                period_start=p,
+                posts_count=len(vectors),
+                schwartz=aggregate_vectors(vectors),
+            ))
 
-            days.append(
-                CategorySeriesDayItem(
-                    date=day,
-                    posts_count=len(vectors),
-                    schwartz=aggregate_vectors(vectors),
-                )
-            )
-
-        results.append(CategorySeriesResponse(category_name=cat_name, lang=lang.value, days=days))
+        results.append(CategorySeriesResponse(
+            category_name=cat_name,
+            lang=lang.value,
+            granularity=granularity.value,
+            periods=items,
+        ))
 
     return results

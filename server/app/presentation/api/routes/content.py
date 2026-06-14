@@ -23,6 +23,7 @@ from app.presentation.schemas.analysis import (
     SourceAnalyzeResponse,
     SourceLemmaAnalysisResponse,
     SourceStoredSchwartzResponse,
+    TimeGranularity,
 )
 from app.use_case.analyze import get_stored as analyze_get_stored
 from app.use_case.analyze import lemma as analyze_lemma
@@ -120,12 +121,13 @@ async def analyze_categories_lemma(
 @router.post(
     "/lemma/categories/by_day",
     response_model=list[CategorySeriesResponse],
-    summary="Временны́е ряды ЦКМ по нескольким категориям (один ряд на категорию, один элемент на день)",
+    summary="Временны́е ряды ЦКМ по нескольким категориям (один ряд на категорию, один элемент на период)",
 )
 async def analyze_categories_lemma_by_day(
     body: LemmaCategoriesRequest,
     date_from: date = Query(..., description="Начало диапазона (включительно)"),
     date_to: date = Query(..., description="Конец диапазона (включительно)"),
+    granularity: TimeGranularity = Query(TimeGranularity.day, description="Гранулярность: day, week, month"),
     db: AsyncSession = Depends(get_session),
 ) -> list[CategorySeriesResponse]:
     if date_to < date_from:
@@ -135,7 +137,7 @@ async def analyze_categories_lemma_by_day(
         )
     categories = [(item.category_name, item.lang) for item in body.categories]
     return await analyze_lemma_categories_by_day.execute(
-        db, categories, date_from=date_from, date_to=date_to
+        db, categories, date_from=date_from, date_to=date_to, granularity=granularity
     )
 
 
@@ -160,18 +162,20 @@ async def analyze_category_lemma(
 @router.get(
     "/lemma/category/{category_name}/by_day",
     response_model=CategoryLemmaByDayResponse,
-    summary="ЦКМ категории по словарному методу, в разбивке по дням публикации постов",
+    summary="ЦКМ категории по словарному методу, в разбивке по периодам (день / неделя / месяц)",
 )
 async def analyze_category_lemma_by_day(
     category_name: str,
     lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
+    granularity: TimeGranularity = Query(TimeGranularity.day, description="Гранулярность: day, week, month"),
     limit: int | None = Query(None, ge=1, description="Последние N постов категории (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
     db: AsyncSession = Depends(get_session),
 ) -> CategoryLemmaByDayResponse:
     return await analyze_lemma_category_by_day.execute(
-        db, category_name, lang=lang, limit=limit, date_from=date_from, date_to=date_to
+        db, category_name, lang=lang, granularity=granularity,
+        limit=limit, date_from=date_from, date_to=date_to,
     )
 
 
