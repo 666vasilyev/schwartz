@@ -1,5 +1,6 @@
 """
 Оценка ценностей Шварца (Theory of Basic Values) по тексту: один вызов LLM, JSON с числами 0.0–1.0.
+После получения ответа значения нормализуются так, чтобы сумма = 1.0.
 """
 from __future__ import annotations
 
@@ -22,32 +23,32 @@ SCHWARTZ_KEYS: tuple[str, ...] = (
     "universalism",  # Справедливость, толерантность, природа, всеобщий мир
 )
 
-# Промпт для LLM: не дублируйте имя старого impact-классификатора
-SCHWARTZ_LLM_SYSTEM = f"""Ты оцениваешь, насколько в **данном фрагменте текста** (пост, объявление и т.п.) читаема или активируема каждая из **10 базовых ценностей Шварца (Schwartz)**, по шкале от **0.0** (почти нет) до **1.0** (очень сильно выражено). Учти формулировки, тон, призывы, темы, а не предположения о внешнем контексте, которого в тексте нет.
-
-Смысл измерителей (кратко):
-- self_direction — свобода мыслей, выбора, независимость, творчество
-- stimulation — смена впечатлений, риск, крутые ощущения, новизна
-- hedonism — удовольствие, кайф, комфорт «здесь и сейчас»
-- achievement — соревнование, успех, демонстрация своих сил, цели, KPI
-- power — власть, доминирование, статус, деньги как контроль, давление, «кто главный»
-- security — национальная/личная/семейная безопасность, стабильность, предсказуемость
-- conformity — норма, правила, «так не принято», сдержанность, соответствие
-- tradition — вера, обычай, культовое «так положено», духовные традиции, почет старших
-- benevolence — теплота, помощь **своим** (свои люди, семья, близкий круг)
-- universalism — забота о **других** и планетарные темы, справедливость, равноправие, толерантность, экология
-
-(В схеме JSON ключи строго на латинице, как ниже.)
-
-**Обязательно** верни один JSON-объект, без markdown и без пояснений вне JSON, **ровно** с этими ключами (float 0.0..1.0):
-{", ".join(f'"{k}"' for k in SCHWARTZ_KEYS)}
-
-Значения — не «насколько ценно в абсолюте», а **насколько сильно этот смысл присутствует в присланном тексте**. Сумма значений **не** обязана быть 1.0.
-"""
+# Промпт: few-shot на русском — показывает модели ожидаемый формат и уровень детализации.
+# Не использует response_format (breaking с thinking-моделями), JSON парсится через extract_json.
+SCHWARTZ_LLM_SYSTEM = (
+    "Оцени выраженность 10 ценностей Шварца в тексте. Шкала: 0.0 (не выражено) – 1.0 (очень сильно).\n\n"
+    "Ключи и их смысл:\n"
+    "self_direction = независимость, свобода выбора, творчество\n"
+    "stimulation = новизна, риск, острые ощущения, приключения\n"
+    "hedonism = удовольствие, радость, комфорт, наслаждение\n"
+    "achievement = успех, амбиции, победа, достижение целей\n"
+    "power = власть, контроль, статус, богатство, господство\n"
+    "security = безопасность, стабильность, защита, порядок\n"
+    "conformity = следование правилам, послушание, сдержанность\n"
+    "tradition = обычаи, религия, наследие, почитание старших\n"
+    "benevolence = забота о близких, семья, лояльность, дружба\n"
+    "universalism = справедливость, экология, права человека, мир\n\n"
+    "Пример:\n"
+    'Текст: "Волонтёры высадили тысячу деревьев в городском парке, чтобы улучшить экологию."\n'
+    'Ответ: {"self_direction":0.3,"stimulation":0.1,"hedonism":0.0,"achievement":0.4,'
+    '"power":0.0,"security":0.2,"conformity":0.1,"tradition":0.0,'
+    '"benevolence":0.5,"universalism":0.8}\n\n'
+    "Верни ТОЛЬКО JSON-объект с 10 ключами, без markdown и пояснений."
+)
 
 
 def normalize_schwartz_payload(raw: object) -> dict[str, float]:
-    """Сведение ответа LLM к фиксированным ключам; значения 0.0..1.0, отсутствие → 0.0."""
+    """Привести ответ LLM к фиксированным ключам; значения 0.0..1.0, отсутствие → 0.0."""
     if not isinstance(raw, dict):
         return {k: 0.0 for k in SCHWARTZ_KEYS}
     out: dict[str, float] = {}
@@ -64,6 +65,18 @@ def normalize_schwartz_payload(raw: object) -> dict[str, float]:
     return out
 
 
+def normalize_to_unit_sum(values: dict[str, float]) -> dict[str, float]:
+    """Нормализовать так, чтобы сумма значений = 1.0.
+
+    Если сумма ≤ 0 (все нули) — возвращаем как есть (равномерное распределение
+    не имеет смысла без реальных данных).
+    """
+    total = sum(values.values())
+    if total <= 0.0:
+        return dict(values)
+    return {k: round(v / total, 4) for k, v in values.items()}
+
+
 async def extract_schwartz_values_from_text(
     text: str | None,
     *,
@@ -71,7 +84,7 @@ async def extract_schwartz_values_from_text(
     model: str | None = None,
 ) -> dict[str, float] | None:
     """
-    Возвращает словарь из 10 ключей с дробями 0..1, либо None если текста нет.
+    Возвращает словарь из 10 ключей с дробями 0..1 (сумма = 1.0), либо None если текста нет.
     provider/model — per-request override (опционально).
     """
     if not text or not text.strip():
@@ -79,7 +92,7 @@ async def extract_schwartz_values_from_text(
     t = text.strip()[:8000]
     # Ошибки LLM (HTTPException 502) пробрасываются наверх — клиент получает реальную ошибку
     result = await ask_llm_json(
-        f"Проанализируй фрагмент и верни JSON по инструкции (см. system).\n\n---\n{t}",
+        f"Текст: {t}\n\nJSON:",
         system=SCHWARTZ_LLM_SYSTEM,
         provider=provider,
         model=model,
@@ -88,16 +101,15 @@ async def extract_schwartz_values_from_text(
         logger.warning("schwartz_llm_not_dict", type_=type(result).__name__)
         return {k: 0.0 for k in SCHWARTZ_KEYS}
     normalized = normalize_schwartz_payload(result)
-    max_key = max(normalized, key=normalized.get)
-    max_val = normalized[max_key]
+    unit = normalize_to_unit_sum(normalized)
+    max_key = max(unit, key=unit.get)
     logger.info(
         "schwartz_extracted",
         max_key=max_key,
-        max_val=round(max_val, 4),
-        raw_keys=list(result.keys())[:5],
-        sample=dict(list(normalized.items())[:3]),
+        max_val=round(unit[max_key], 4),
+        nonzero=sum(1 for v in unit.values() if v > 0),
     )
-    return normalized
+    return unit
 
 
 def merge_details_with_schwartz(

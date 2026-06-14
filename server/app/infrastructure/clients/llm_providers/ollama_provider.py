@@ -1,8 +1,11 @@
 """Ollama provider — локально развёрнутые модели (OpenAI-совместимый API).
 
-Ollama поднимает OpenAI-совместимый сервер на /v1/chat/completions.
-API-ключ не нужен — передаём dummy "ollama".
-Прокси не нужен — сервер в локальной сети.
+Особенности gemma4:31b (и других thinking-моделей в Ollama):
+- По умолчанию модель уходит в «thinking mode» и оставляет message.content пустым.
+- Решение: передавать extra_body={"think": False} — отключает thinking mode,
+  модель сразу пишет ответ в content.
+- response_format=json_object с thinking-моделью возвращает пустой {} → не используем.
+  Вместо этого просим JSON в системном промпте и парсим через extract_json.
 
 Документация: https://ollama.com/blog/openai-compatibility
 """
@@ -16,18 +19,16 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Передаётся в каждый запрос к Ollama чтобы отключить thinking mode
+_OLLAMA_EXTRA_BODY = {"think": False}
+
 
 class OllamaProvider(OpenAIProvider):
     """
     Провайдер для локального Ollama-сервера.
 
     base_url — адрес Ollama, например http://10.0.21.10:11434/v1
-    Ollama поддерживает response_format={"type":"json_object"} через OpenAI-совместимый API,
-    поэтому ask_json использует базовый OpenAIProvider.ask_json.
-    Если модель не поддерживает response_format — включить USE_EXTRACT_JSON = True.
     """
-
-    USE_EXTRACT_JSON = False  # True → plain text + extract_json вместо response_format
 
     def __init__(self, base_url: str) -> None:
         super().__init__(
@@ -35,6 +36,27 @@ class OllamaProvider(OpenAIProvider):
             base_url=base_url,
             proxy=None,            # локальная сеть, прокси не нужен
             raise_on_proxy_unavailable=False,
+        )
+
+    async def ask(
+        self,
+        prompt: str,
+        *,
+        system: str = "You are a helpful assistant.",
+        model: str,
+        temperature: float = 0.2,
+        max_tokens: int = 512,
+        extra_body: dict | None = None,
+    ) -> str:
+        """Передаём think=False чтобы модель писала ответ в content, а не в thinking."""
+        body = {**_OLLAMA_EXTRA_BODY, **(extra_body or {})}
+        return await super().ask(
+            prompt,
+            system=system,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            extra_body=body,
         )
 
     async def ask_json(
@@ -45,25 +67,24 @@ class OllamaProvider(OpenAIProvider):
         model: str,
         temperature: float = 0.1,
         max_tokens: int = 512,
+        extra_body: dict | None = None,
     ) -> Any:
-        if not self.USE_EXTRACT_JSON:
-            # Ollama поддерживает response_format=json_object — используем базовый метод
-            return await super().ask_json(
-                prompt, system=system, model=model,
-                temperature=temperature, max_tokens=max_tokens,
-            )
-
-        # Fallback: plain text + extract_json (если модель не поддерживает response_format)
+        """
+        Не используем response_format=json_object (возвращает пустой {} на thinking-модели).
+        Вместо этого: ask() с think=False + extract_json из сырого текста.
+        JSON-инструкция должна быть в system-промпте (см. schwartz_values.py, text.py).
+        """
         raw = await self.ask(
             prompt,
-            system=system + "\n\nОтвечай только валидным JSON-объектом без markdown-блоков.",
+            system=system,
             model=model,
             temperature=temperature,
             max_tokens=max_tokens,
+            extra_body=extra_body,
         )
-        logger.debug("ollama_raw_response", model=model, raw=raw[:500])
+        logger.debug("ollama_raw", model=model, preview=raw[:300])
         try:
             return extract_json(raw)
         except ValueError as exc:
-            logger.warning("ollama_json_parse_failed", model=model, error=str(exc), raw=raw[:500])
+            logger.warning("ollama_json_parse_failed", model=model, error=str(exc), raw=raw[:300])
             raise

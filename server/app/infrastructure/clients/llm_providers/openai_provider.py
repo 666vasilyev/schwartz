@@ -123,6 +123,7 @@ class OpenAIProvider(LLMProvider):
         model: str,
         temperature: float = 0.2,
         max_tokens: int = 512,
+        extra_body: dict | None = None,
     ) -> str:
         await self._check_proxy()
         response = await self._client.chat.completions.create(
@@ -133,6 +134,7 @@ class OpenAIProvider(LLMProvider):
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
+            **({"extra_body": extra_body} if extra_body else {}),
         )
         reply = response.choices[0].message.content or ""
         logger.debug("openai_ask", model=model, tokens=response.usage.total_tokens if response.usage else None)
@@ -147,6 +149,7 @@ class OpenAIProvider(LLMProvider):
         model: str,
         temperature: float = 0.1,
         max_tokens: int = 512,
+        extra_body: dict | None = None,
     ) -> Any:
         await self._check_proxy()
         response = await self._client.chat.completions.create(
@@ -158,6 +161,7 @@ class OpenAIProvider(LLMProvider):
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
+            **({"extra_body": extra_body} if extra_body else {}),
         )
         raw = response.choices[0].message.content or "{}"
         return json.loads(raw)
