@@ -62,8 +62,18 @@ class OllamaProvider(LLMProvider):
         resp = await self._http.post(self._chat_url, json=payload)
         resp.raise_for_status()
         data = resp.json()
-        content = data["choices"][0]["message"].get("content") or ""
-        logger.debug("ollama_ask", model=model, content_len=len(content))
+        msg = data["choices"][0]["message"]
+        content = msg.get("content") or ""
+        finish_reason = data["choices"][0].get("finish_reason", "?")
+        thinking = msg.get("thinking") or ""
+        logger.info(
+            "ollama_ask_done",
+            model=model,
+            content_len=len(content),
+            thinking_len=len(thinking),
+            finish_reason=finish_reason,
+            content_preview=content[:150],
+        )
         return content.strip()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))

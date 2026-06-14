@@ -92,10 +92,11 @@ async def extract_schwartz_values_from_text(
     t = text.strip()[:8000]
     # Ошибки LLM (HTTPException 502) пробрасываются наверх — клиент получает реальную ошибку
     result = await ask_llm_json(
-        f"Текст: {t}\n\nJSON:",
+        f"Текст:\n\n{t}",
         system=SCHWARTZ_LLM_SYSTEM,
         provider=provider,
         model=model,
+        max_tokens=1024,
     )
     if not isinstance(result, dict):
         logger.warning("schwartz_llm_not_dict", type_=type(result).__name__)
