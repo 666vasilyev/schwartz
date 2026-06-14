@@ -88,7 +88,15 @@ async def extract_schwartz_values_from_text(
         logger.warning("schwartz_llm_not_dict", type_=type(result).__name__)
         return {k: 0.0 for k in SCHWARTZ_KEYS}
     normalized = normalize_schwartz_payload(result)
-    logger.info("schwartz_extracted", max_key=max(normalized, key=normalized.get))
+    max_key = max(normalized, key=normalized.get)
+    max_val = normalized[max_key]
+    logger.info(
+        "schwartz_extracted",
+        max_key=max_key,
+        max_val=round(max_val, 4),
+        raw_keys=list(result.keys())[:5],
+        sample=dict(list(normalized.items())[:3]),
+    )
     return normalized
 
 
