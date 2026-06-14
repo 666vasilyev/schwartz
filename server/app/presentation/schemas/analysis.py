@@ -103,6 +103,27 @@ class CategoryLemmaByDayResponse(BaseModel):
     )
 
 
+class CategorySeriesDayItem(BaseModel):
+    """Значения ЦКМ за один день (для временно́го ряда по категории)."""
+
+    date: date
+    posts_count: int = Field(description="Постов с непустым текстом, прошедших анализ за этот день")
+    schwartz: dict[str, float] = Field(
+        ...,
+        description="10 измерений ЦКМ (нормировано: сумма = 1.0; нули если постов нет)",
+    )
+
+
+class CategorySeriesResponse(BaseModel):
+    """Временно́й ряд ЦКМ для одной категории."""
+
+    category_name: str
+    lang: str
+    days: list[CategorySeriesDayItem] = Field(
+        description="По одной записи на каждый день диапазона (включая пустые дни с нулями), по возрастанию даты",
+    )
+
+
 class ContentAnalysisResult(BaseModel):
     """Результат анализа поста: деструктивность по тексту (LLM) + 10 измерений Шварца (LLM, только в рантайме/ответе)."""
     destruct_score: float = Field(..., ge=0.0)

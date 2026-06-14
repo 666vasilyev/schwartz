@@ -2,7 +2,7 @@
 POST /analyze/source/{source_id} — посты стены источника: LLM по каждому; средние Шварца в БД.
 GET  /analyze/source/{source_id}/stored — последний сохранённый агрегат Шварца из БД.
 """
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,7 @@ from app.presentation.api.dependencies import get_session
 from app.presentation.schemas.analysis import (
     CategoryLemmaByDayResponse,
     CategoryLangItem,
+    CategorySeriesResponse,
     LemmaAnalysisResult,
     LemmaBaselineResponse,
     LemmaCategoriesRequest,
@@ -26,6 +27,7 @@ from app.presentation.schemas.analysis import (
 from app.use_case.analyze import get_stored as analyze_get_stored
 from app.use_case.analyze import lemma as analyze_lemma
 from app.use_case.analyze import lemma_categories as analyze_lemma_categories
+from app.use_case.analyze import lemma_categories_by_day as analyze_lemma_categories_by_day
 from app.use_case.analyze import lemma_category as analyze_lemma_category
 from app.use_case.analyze import lemma_category_by_day as analyze_lemma_category_by_day
 from app.use_case.analyze import lemma_source as analyze_lemma_source
@@ -112,6 +114,28 @@ async def analyze_categories_lemma(
     categories = [(item.category_name, item.lang) for item in body.categories]
     return await analyze_lemma_categories.execute(
         db, categories, limit=limit, date_from=date_from, date_to=date_to
+    )
+
+
+@router.post(
+    "/lemma/categories/by_day",
+    response_model=list[CategorySeriesResponse],
+    summary="Временны́е ряды ЦКМ по нескольким категориям (один ряд на категорию, один элемент на день)",
+)
+async def analyze_categories_lemma_by_day(
+    body: LemmaCategoriesRequest,
+    date_from: date = Query(..., description="Начало диапазона (включительно)"),
+    date_to: date = Query(..., description="Конец диапазона (включительно)"),
+    db: AsyncSession = Depends(get_session),
+) -> list[CategorySeriesResponse]:
+    if date_to < date_from:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="date_to не может быть раньше date_from",
+        )
+    categories = [(item.category_name, item.lang) for item in body.categories]
+    return await analyze_lemma_categories_by_day.execute(
+        db, categories, date_from=date_from, date_to=date_to
     )
 
 

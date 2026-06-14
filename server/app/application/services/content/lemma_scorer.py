@@ -16,33 +16,41 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 CSV_COLUMNS: tuple[str, ...] = (
-    "\u0411\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u044c",
-    "\u0421\u043e\u0446\u0438\u0430\u043b\u044c\u043d\u0430\u044f \u0438\u043d\u0442\u0435\u0433\u0440\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u043e\u0441\u0442\u044c",
-    "\u0410\u043c\u0431\u0438\u043e\u0437\u043d\u043e\u0441\u0442\u044c",
-    "\u0418\u043d\u0434\u0438\u0432\u0438\u0434\u0443\u0430\u043b\u044c\u043d\u043e\u0441\u0442\u044c",
-    "\u0420\u0430\u0446\u0438\u043e\u043d\u0430\u043b\u044c\u043d\u043e\u0441\u0442\u044c",
-    "\u041a\u0440\u0430\u0441\u043e\u0442\u0430",
-    "\u0421\u043e\u0446\u0438\u0430\u043b\u044c\u043d\u0430\u044f \u0441\u043f\u0440\u0430\u0432\u0435\u0434\u043b\u0438\u0432\u043e\u0441\u0442\u044c",
-    "\u0413\u0440\u0430\u0436\u0434\u0430\u043d\u0441\u0442\u0432\u0435\u043d\u043d\u043e\u0441\u0442\u044c / \u041e\u0431\u0449\u0435\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0439 \u0434\u043e\u0433\u043e\u0432\u043e\u0440",
-    "\u041f\u0440\u043e\u0446\u0432\u0435\u0442\u0430\u043d\u0438\u0435",
-    "\u0421\u0432\u043e\u0431\u043e\u0434\u0430 \u0441\u043e\u0432\u0435\u0441\u0442\u0438",
+    "Безопасность",
+    "Социальная интегрированность",
+    "Амбиозность",
+    "Индивидуальность",
+    "Рациональность",
+    "Красота",
+    "Социальная справедливость",
+    "Гражданственность / Общественный договор",
+    "Процветание",
+    "Свобода совести",
 )
 
 
 class LemmaLang(str, Enum):
     ru = "ru"
     ru_un = "ru_un"
+    ru_merged = "ru_merged"
     usa = "usa"
     usa_un = "usa_un"
+    usa_merged = "usa_merged"
     frg = "frg"
 
 
-_CSV_FILENAMES = {
+_CSV_FILENAMES: dict[LemmaLang, str] = {
     LemmaLang.ru: "ru.csv",
     LemmaLang.ru_un: "ru_un.csv",
     LemmaLang.usa: "usa.csv",
     LemmaLang.usa_un: "usa_un.csv",
     LemmaLang.frg: "frg.csv",
+}
+
+# Merged langs combine two base dictionaries; duplicate lemmas get averaged weights.
+_MERGED_COMPONENTS: dict[LemmaLang, tuple[LemmaLang, LemmaLang]] = {
+    LemmaLang.ru_merged: (LemmaLang.ru, LemmaLang.ru_un),
+    LemmaLang.usa_merged: (LemmaLang.usa, LemmaLang.usa_un),
 }
 
 _LEMMA_DIRS: tuple[Path, ...] = (
@@ -69,6 +77,9 @@ def _clean_lemma(raw: str) -> str:
 
 LemmaScoreResult = tuple[dict[str, float], list[str], dict[str, float]]
 
+# Internal index type: (single_dict, phrase_dict, phrase_pattern, categories_dict)
+_Index = tuple[dict, dict, object, dict]
+
 
 def _detect_encoding(path: Path) -> str:
     """Try UTF-8 first (incl. BOM), fall back to cp1251."""
@@ -82,8 +93,58 @@ def _detect_encoding(path: Path) -> str:
     return "cp1251"
 
 
-@lru_cache(maxsize=8)
-def _load_index(lang: LemmaLang):
+def _build_phrase_pattern(phrase_dict: dict) -> object:
+    if not phrase_dict:
+        return None
+    phrases_sorted = sorted(phrase_dict.keys(), key=len, reverse=True)
+    return re.compile(r"\b(?:" + "|".join(re.escape(p) for p in phrases_sorted) + r")\b")
+
+
+def _merge_indexes(idx_a: _Index, idx_b: _Index) -> _Index:
+    """Combine two indexes. Duplicate lemmas get averaged weights."""
+    single_a, phrase_a, _, cats_a = idx_a
+    single_b, phrase_b, _, cats_b = idx_b
+
+    def _merge_dicts(d_a: dict, d_b: dict) -> dict:
+        merged: dict[str, dict[str, float]] = dict(d_a)
+        for lemma, weights_b in d_b.items():
+            if lemma in merged:
+                weights_a = merged[lemma]
+                merged[lemma] = {
+                    k: (weights_a.get(k, 0.0) + weights_b.get(k, 0.0)) / 2
+                    for k in CSV_COLUMNS
+                }
+            else:
+                merged[lemma] = weights_b
+        return merged
+
+    merged_single = _merge_dicts(single_a, single_b)
+    merged_phrase = _merge_dicts(phrase_a, phrase_b)
+    # For categories, prefer dict_a; add any lemmas only in dict_b
+    merged_cats = {**cats_b, **cats_a}
+
+    return merged_single, merged_phrase, _build_phrase_pattern(merged_phrase), merged_cats
+
+
+@lru_cache(maxsize=16)
+def _load_index(lang: LemmaLang) -> _Index:
+    # Merged langs: combine two base indexes
+    if lang in _MERGED_COMPONENTS:
+        lang_a, lang_b = _MERGED_COMPONENTS[lang]
+        idx_a = _load_index(lang_a)
+        idx_b = _load_index(lang_b)
+        merged = _merge_indexes(idx_a, idx_b)
+        single, phrase, _, _ = merged
+        logger.info(
+            "lemma_index_merged",
+            lang=lang.value,
+            components=[lang_a.value, lang_b.value],
+            single=len(single),
+            phrases=len(phrase),
+        )
+        return merged
+
+    # Base langs: load from CSV
     try:
         path = _find_csv(lang)
     except FileNotFoundError as exc:
@@ -124,12 +185,7 @@ def _load_index(lang: LemmaLang):
                 else:
                     single_dict[lemma] = weights
 
-        phrase_pattern = None
-        if phrase_dict:
-            phrases_sorted = sorted(phrase_dict.keys(), key=len, reverse=True)
-            phrase_pattern = re.compile(
-                r"\b(?:" + "|".join(re.escape(p) for p in phrases_sorted) + r")\b"
-            )
+        phrase_pattern = _build_phrase_pattern(phrase_dict)
         logger.info("lemma_index_built", lang=lang.value, single=len(single_dict), phrases=len(phrase_dict))
         return single_dict, phrase_dict, phrase_pattern, categories_dict
     except Exception as exc:
