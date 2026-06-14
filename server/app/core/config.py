@@ -12,28 +12,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ── LLM: активный провайдер и модель ─────────────────────────────────────
-    # Поддерживаемые провайдеры: openai, deepseek, gigachat, yandexgpt
-    llm_provider: str = "openai"
-    llm_model: str = "gpt-4o-mini"
+    # ── LLM ───────────────────────────────────────────────────────────────────
+    llm_provider: str = "ollama"
+    llm_model: str = "gemma4:31b"
 
-    # OpenAI
-    openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"  # deprecated — используйте llm_model
+    # Ollama — локальный сервер с открытыми моделями
+    ollama_base_url: str = "http://10.0.21.10:11434/v1"
 
-    # DeepSeek
-    deepseek_api_key: str = ""
-
-    # Sber GigaChat — "clientId:clientSecret" или base64(clientId:clientSecret)
-    gigachat_auth_key: str = ""
-    gigachat_scope: str = "GIGACHAT_API_PERS"  # GIGACHAT_API_PERS | GIGACHAT_API_B2B | GIGACHAT_API_CORP
-    gigachat_use_new_api_url: bool = True  # True → api.giga.chat (SSL ok); False → gigachat.devices.sberbank.ru
-
-    # YandexGPT
-    yandex_api_key: str = ""
-    yandex_folder_id: str = ""
-
-    # Прокси для исходящих запросов: LLM, Telegram MTProto (например socks5://127.0.0.1:1080)
+    # Прокси для Telegram MTProto (например socks5://host-gateway:1080)
     proxy: str = ""
 
     # Application

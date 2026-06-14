@@ -14,40 +14,10 @@ logger = get_logger(__name__)
 # ── Каталог моделей ──────────────────────────────────────────────────────────
 
 MODELS_CATALOG: dict[str, dict[str, Any]] = {
-    "openai": {
-        "label": "OpenAI",
+    "ollama": {
+        "label": "Ollama (локальный сервер)",
         "models": [
-            "gpt-4o",
-            "gpt-4o-mini",
-            "gpt-4.1",
-            "gpt-4.1-mini",
-            "gpt-4-turbo",
-            "gpt-3.5-turbo",
-            "o3",
-            "o4-mini",
-        ],
-    },
-    "deepseek": {
-        "label": "DeepSeek",
-        "models": [
-            "deepseek-chat",
-            "deepseek-reasoner",
-        ],
-    },
-    "gigachat": {
-        "label": "GigaChat (Сбер)",
-        "models": [
-            "GigaChat-2-Lite",   # быстрая, 65 ₽/1M токенов
-            "GigaChat-2-Pro",    # продвинутая, 500 ₽/1M токенов
-            "GigaChat-2-Max",    # максимальная, 650 ₽/1M токенов
-        ],
-    },
-    "yandexgpt": {
-        "label": "YandexGPT",
-        "models": [
-            "yandexgpt-lite",
-            "yandexgpt",
-            "yandexgpt-32k",
+            "gemma4:31b",
         ],
     },
 }
@@ -57,7 +27,7 @@ MODELS_CATALOG: dict[str, dict[str, Any]] = {
 _active_provider_name: str | None = None
 _active_model: str | None = None
 
-# Кэш инстансов провайдеров (создаём лениво)
+# Кэш инстансов провайдеров (создаётся лениво)
 _provider_instances: dict[str, Any] = {}
 
 
@@ -92,10 +62,7 @@ def set_active(provider_name: str, model: str) -> None:
 def get_provider(provider_name: str | None = None):
     """Вернуть инстанс провайдера (создаётся лениво, кэшируется)."""
     from app.core.config import get_settings
-    from app.infrastructure.clients.llm_providers.deepseek_provider import DeepSeekProvider
-    from app.infrastructure.clients.llm_providers.gigachat_provider import GigaChatProvider
-    from app.infrastructure.clients.llm_providers.openai_provider import OpenAIProvider
-    from app.infrastructure.clients.llm_providers.yandexgpt_provider import YandexGPTProvider
+    from app.infrastructure.clients.llm_providers.ollama_provider import OllamaProvider
 
     if provider_name is None:
         provider_name, _ = get_active()
@@ -104,27 +71,11 @@ def get_provider(provider_name: str | None = None):
         return _provider_instances[provider_name]
 
     s = get_settings()
-    proxy = s.proxy or None
 
-    if provider_name == "openai":
-        instance = OpenAIProvider(
-            api_key=s.openai_api_key,
-            proxy=proxy,
-            raise_on_proxy_unavailable=bool(proxy),  # только если прокси задан
-        )
-    elif provider_name == "deepseek":
-        instance = DeepSeekProvider(api_key=s.deepseek_api_key, proxy=proxy)
-    elif provider_name == "gigachat":
-        instance = GigaChatProvider(
-            auth_key=s.gigachat_auth_key,
-            scope=s.gigachat_scope,
-            proxy=None,  # Sber — российский сервис, прокси не нужен
-            use_new_api_url=s.gigachat_use_new_api_url,
-        )
-    elif provider_name == "yandexgpt":
-        instance = YandexGPTProvider(api_key=s.yandex_api_key, folder_id=s.yandex_folder_id, proxy=None)  # российский сервис
+    if provider_name == "ollama":
+        instance = OllamaProvider(base_url=s.ollama_base_url)
     else:
-        raise ValueError(f"Неизвестный провайдер: {provider_name!r}")
+        raise ValueError(f"Неизвестный провайдер: {provider_name!r}. Доступны: {list(MODELS_CATALOG)}")
 
     _provider_instances[provider_name] = instance
     return instance
