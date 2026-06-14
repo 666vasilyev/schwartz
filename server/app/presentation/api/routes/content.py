@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services.content.lemma_scorer import LemmaLang, read_baseline
 from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
+from app.infrastructure.clients.llm import ask_llm
 from app.presentation.schemas.analysis import (
     CategoryLemmaByDayResponse,
     CategoryLangItem,
@@ -19,6 +20,8 @@ from app.presentation.schemas.analysis import (
     LemmaCategoriesRequest,
     LemmaSourcesRequest,
     LemmaTextRequest,
+    LLMChatRequest,
+    LLMChatResponse,
     LLMOverrideRequest,
     SourceAnalyzeResponse,
     SourceLemmaAnalysisResponse,
@@ -119,15 +122,15 @@ async def analyze_categories_lemma(
 
 
 @router.post(
-    "/lemma/categories/by_day",
+    "/lemma/categories/granularity/{granularity}",
     response_model=list[CategorySeriesResponse],
     summary="Временны́е ряды ЦКМ по нескольким категориям (один ряд на категорию, один элемент на период)",
 )
 async def analyze_categories_lemma_by_day(
+    granularity: TimeGranularity,
     body: LemmaCategoriesRequest,
     date_from: date = Query(..., description="Начало диапазона (включительно)"),
     date_to: date = Query(..., description="Конец диапазона (включительно)"),
-    granularity: TimeGranularity = Query(TimeGranularity.day, description="Гранулярность: day, week, month"),
     db: AsyncSession = Depends(get_session),
 ) -> list[CategorySeriesResponse]:
     if date_to < date_from:
@@ -160,14 +163,14 @@ async def analyze_category_lemma(
 
 
 @router.get(
-    "/lemma/category/{category_name}/by_day",
+    "/lemma/category/{category_name}/granularity/{granularity}",
     response_model=CategoryLemmaByDayResponse,
     summary="ЦКМ категории по словарному методу, в разбивке по периодам (день / неделя / месяц)",
 )
 async def analyze_category_lemma_by_day(
     category_name: str,
+    granularity: TimeGranularity,
     lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
-    granularity: TimeGranularity = Query(TimeGranularity.day, description="Гранулярность: day, week, month"),
     limit: int | None = Query(None, ge=1, description="Последние N постов категории (по дате публикации)"),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
@@ -177,6 +180,20 @@ async def analyze_category_lemma_by_day(
         db, category_name, lang=lang, granularity=granularity,
         limit=limit, date_from=date_from, date_to=date_to,
     )
+
+
+@router.post(
+    "/llm/ask",
+    response_model=LLMChatResponse,
+    summary="Отправить произвольный текст в LLM и получить ответ",
+)
+async def llm_ask(body: LLMChatRequest) -> LLMChatResponse:
+    text = await ask_llm(
+        body.text,
+        provider=body.provider,
+        model=body.model,
+    )
+    return LLMChatResponse(text=text)
 
 
 @router.get(

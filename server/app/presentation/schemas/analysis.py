@@ -129,6 +129,20 @@ class CategorySeriesResponse(BaseModel):
     )
 
 
+class LLMChatRequest(BaseModel):
+    """Произвольный запрос к LLM-модели."""
+
+    text: str = Field(..., min_length=1, description="Текст пользователя")
+    provider: str | None = Field(None, description="Провайдер (напр. ollama). По умолчанию — активный.")
+    model: str | None = Field(None, description="Модель (напр. gemma4:31b). По умолчанию — активная.")
+
+
+class LLMChatResponse(BaseModel):
+    """Ответ LLM-модели на произвольный запрос."""
+
+    text: str = Field(description="Текст ответа модели")
+
+
 class ContentAnalysisResult(BaseModel):
     """Результат анализа поста: деструктивность по тексту (LLM) + 10 измерений Шварца (LLM, только в рантайме/ответе)."""
     destruct_score: float = Field(..., ge=0.0)
