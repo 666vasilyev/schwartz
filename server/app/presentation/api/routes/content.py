@@ -129,18 +129,20 @@ async def analyze_categories_lemma(
 async def analyze_categories_lemma_by_day(
     granularity: TimeGranularity,
     body: LemmaCategoriesRequest,
-    date_from: date = Query(..., description="Начало диапазона (включительно)"),
-    date_to: date = Query(..., description="Конец диапазона (включительно)"),
+    date_from: datetime = Query(..., description="Начало диапазона (включительно), принимает дату или datetime"),
+    date_to: datetime = Query(..., description="Конец диапазона (включительно), принимает дату или datetime"),
     db: AsyncSession = Depends(get_session),
 ) -> CategoriesSchwartzTimeseriesResponse:
-    if date_to < date_from:
+    df = date_from.date() if isinstance(date_from, datetime) else date_from
+    dt_ = date_to.date() if isinstance(date_to, datetime) else date_to
+    if dt_ < df:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="date_to не может быть раньше date_from",
         )
     categories = [(item.category_name, item.lang) for item in body.categories]
     return await analyze_lemma_categories_by_day.execute(
-        db, categories, date_from=date_from, date_to=date_to, granularity=granularity
+        db, categories, date_from=df, date_to=dt_, granularity=granularity
     )
 
 

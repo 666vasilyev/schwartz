@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, datetime as dt
+from datetime import date, datetime as dt, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.content.lemma_scorer import CSV_COLUMNS, LemmaLang, score_texts_batch
@@ -12,6 +12,9 @@ from app.infrastructure.db.orm.models import Post, source_category_link
 from app.presentation.schemas.analysis import CategoriesSchwartzTimeseriesResponse
 from app.use_case.analyze._lemma_aggregate import aggregate_vectors
 from app.use_case.analyze._time_utils import TimeGranularity, period_range, period_start
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 async def execute(
@@ -35,8 +38,9 @@ async def execute(
     lang_by_cat: dict[str, LemmaLang] = {name: lang for name, lang in categories}
     zero_schwartz = {k: 0.0 for k in CSV_COLUMNS}
 
-    date_from_dt = dt.combine(date_from, dt.min.time())
-    date_to_dt = dt.combine(date_to, dt.max.time())
+    # Используем UTC-aware datetimes, чтобы корректно сравнивать с timestamptz колонкой
+    date_from_dt = dt.combine(date_from, dt.min.time(), tzinfo=timezone.utc)
+    date_to_dt = dt.combine(date_to, dt.max.time(), tzinfo=timezone.utc)
 
     q = (
         select(Post, source_category_link.c.category_name)
@@ -48,6 +52,14 @@ async def execute(
     )
 
     rows = (await db.execute(q)).all()
+
+    logger.info(
+        "lemma_timeseries_query",
+        categories=category_names,
+        date_from=date_from_dt.isoformat(),
+        date_to=date_to_dt.isoformat(),
+        rows_fetched=len(rows),
+    )
 
     # posts_by[(cat_name, period_start)] = [Post, ...]  (только непустые тексты)
     posts_by: dict[tuple[str, date], list[Post]] = defaultdict(list)
