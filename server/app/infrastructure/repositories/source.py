@@ -76,12 +76,16 @@ async def add_source(
         row.categories = await _load_categories(db, category_names)
     db.add(row)
     await db.flush()
-    await db.refresh(row)
-    # refresh() above expires the `categories` relationship; reload it explicitly
-    # (awaited, in-context) so later sync access (e.g. Pydantic validation) doesn't
-    # trigger an unexpected lazy load outside the async greenlet.
-    await db.refresh(row, attribute_names=["categories"])
-    return row
+    # Re-fetch with `categories` eagerly loaded (selectinload) instead of a bare
+    # refresh(): refresh() expires/relies-on-lazy-load for relationships, and a
+    # later *synchronous* access (e.g. Pydantic's SourceRead.model_validate(row))
+    # would then try to lazy-load outside the async greenlet and raise
+    # MissingGreenlet. selectinload guarantees `categories` is already populated
+    # on the returned instance.
+    result = await db.execute(
+        select(Source).options(selectinload(Source.categories)).where(Source.id == row.id)
+    )
+    return result.scalar_one()
 
 
 async def get_source_by_id(db: AsyncSession, source_id: int) -> Source | None:
@@ -169,8 +173,10 @@ async def update_source(
         row.categories = []
 
     await db.flush()
-    await db.refresh(row)
-    return row
+    # Bare refresh() expires the eagerly-loaded `categories` relationship; re-fetch
+    # via get_source_by_id (selectinload) instead of refresh()+return row, same
+    # reasoning as in add_source above.
+    return await get_source_by_id(db, source_id)
 
 
 async def soft_delete_source(db: AsyncSession, source_id: int) -> bool:
@@ -267,8 +273,7 @@ async def set_source_status(
     if error_count_delta != 0:
         row.error_count = (row.error_count or 0) + error_count_delta
     await db.flush()
-    await db.refresh(row)
-    return row
+    return await get_source_by_id(db, source_id)
 
 
 # ── Audit log ───────────────────────────────────────────────────────────────
