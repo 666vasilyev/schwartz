@@ -77,6 +77,10 @@ async def add_source(
     db.add(row)
     await db.flush()
     await db.refresh(row)
+    # refresh() above expires the `categories` relationship; reload it explicitly
+    # (awaited, in-context) so later sync access (e.g. Pydantic validation) doesn't
+    # trigger an unexpected lazy load outside the async greenlet.
+    await db.refresh(row, attribute_names=["categories"])
     return row
 
 
