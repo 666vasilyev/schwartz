@@ -155,7 +155,7 @@ async def execute(db: AsyncSession, body: SourceCreateRequest) -> SourceRead:
             region_hint=body.region_hint,
             topic_hint=body.topic_hint,
             owner_id=body.owner_id,
-            category_ids=category_ids,
+            category_names=category_names,
         )
         logger.info("source_registered", source_id=row.id, url=norm, vk_owner_id=vk_owner_id)
         await _enqueue_initial_fetch(db, row.id)
