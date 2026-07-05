@@ -214,7 +214,7 @@ async def extract_lemma_candidates(
     return LemmaExtractResponse(
         lang=lang,
         already_matched=matched,
-        new_lemmas=[NewLemmaItem(**item) for item in new_lemmas],
+        lemmas=[NewLemmaItem(**item) for item in new_lemmas],
     )
 
 

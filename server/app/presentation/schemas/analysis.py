@@ -80,9 +80,13 @@ class LemmaExtractResponse(BaseModel):
         default_factory=list,
         description="Леммы словаря, уже встретившиеся в тексте (LLM просили их не повторять)",
     )
-    new_lemmas: list[NewLemmaItem] = Field(
+    lemmas: list[NewLemmaItem] = Field(
         default_factory=list,
-        description="До `count` новых лемм (см. запрос), не повторяющихся со словарём и друг с другом",
+        description=(
+            "До `count` новых лемм (см. запрос), не повторяющихся со словарём и друг с другом. "
+            "Ключ совпадает с полем `lemmas` в /lemma/append — весь этот ответ можно "
+            "передать в append как есть (лишние поля lang/already_matched будут проигнорированы)."
+        ),
     )
 
 
