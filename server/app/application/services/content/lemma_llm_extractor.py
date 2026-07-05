@@ -25,10 +25,18 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 TARGET_COUNT = 10
-_REQUEST_COUNT = 15  # с запасом: часть кандидатов может отсеяться как дубль
+_REQUEST_COUNT = 12  # с небольшим запасом: часть кандидатов может отсеяться как дубль
 _MAX_TOKENS = 4096  # позиционный массив весов компактнее dict с длинными русскими ключами;
 # без нужды не завышаем — на слабом железе лишние токены сильно удлиняют генерацию,
 # а жёсткий потолок по времени всё равно стоит в app/infrastructure/clients/llm.py
+
+# Сколько уже встретившихся лемм максимум перечисляем в промпте как "не повторяй".
+# Для больших словарей (ru/ru_un — под 2000 лемм) совпадений в тексте может быть
+# много; раздутый список внутри system-промпта у thinking-моделей (gemma4:31b)
+# на практике повышает риск того, что модель уйдёт в скрытые рассуждения и
+# вернёт пустой content при finish_reason=length — короткого списка достаточно,
+# чтобы не давать явные повторы.
+_MAX_EXCLUDE_IN_PROMPT = 40
 
 _COLUMNS_HINT = "\n".join(f"{i + 1}. {col}" for i, col in enumerate(CSV_COLUMNS))
 _ZEROS_EXAMPLE = ", ".join("0.0" for _ in CSV_COLUMNS)
@@ -40,7 +48,11 @@ _COLUMN_LOOKUP: dict[str, str] = {re.sub(r"\s+", "", col).casefold(): col for co
 
 
 def _build_system_prompt(exclude: list[str]) -> str:
-    exclude_str = ", ".join(exclude[:200]) if exclude else "(в этом тексте по словарю совпадений не найдено)"
+    exclude_str = (
+        ", ".join(exclude[:_MAX_EXCLUDE_IN_PROMPT])
+        if exclude
+        else "(в этом тексте по словарю совпадений не найдено)"
+    )
     return (
         "Ты — лингвист-аналитик, размечающий леммы для словаря Ценностной Картины Мира (ЦКМ).\n"
         f"В словаре 10 направлений (порядок важен — веса задаются позиционным массивом):\n{_COLUMNS_HINT}\n\n"
