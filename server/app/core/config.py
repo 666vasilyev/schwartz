@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # Ollama — локальный сервер с открытыми моделями
     ollama_base_url: str = "http://10.0.21.10:11434/v1"
 
+    # OpenAI
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_base_url: str = "https://api.openai.com/v1"
+
     # Прокси для Telegram MTProto (например socks5://host-gateway:1080)
     proxy: str = ""
 

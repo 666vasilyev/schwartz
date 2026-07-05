@@ -20,6 +20,16 @@ MODELS_CATALOG: dict[str, dict[str, Any]] = {
             "gemma4:31b",
         ],
     },
+    "openai": {
+        "label": "OpenAI (облако)",
+        "models": [
+            "gpt-5.5",
+            "gpt-5.5-pro",
+            "gpt-5.4",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+        ],
+    },
 }
 
 # ── Активный провайдер / модель (runtime state) ──────────────────────────────
@@ -63,6 +73,7 @@ def get_provider(provider_name: str | None = None):
     """Вернуть инстанс провайдера (создаётся лениво, кэшируется)."""
     from app.core.config import get_settings
     from app.infrastructure.clients.llm_providers.ollama_provider import OllamaProvider
+    from app.infrastructure.clients.llm_providers.openai_provider import OpenAIProvider
 
     if provider_name is None:
         provider_name, _ = get_active()
@@ -74,6 +85,8 @@ def get_provider(provider_name: str | None = None):
 
     if provider_name == "ollama":
         instance = OllamaProvider(base_url=s.ollama_base_url)
+    elif provider_name == "openai":
+        instance = OpenAIProvider(api_key=s.openai_api_key, base_url=s.openai_base_url)
     else:
         raise ValueError(f"Неизвестный провайдер: {provider_name!r}. Доступны: {list(MODELS_CATALOG)}")
 
