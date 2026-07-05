@@ -272,3 +272,99 @@ def read_baseline(lang: LemmaLang) -> dict | None:
 async def score_texts_batch(texts: list[str], lang: LemmaLang = LemmaLang.ru) -> list[LemmaScoreResult]:
     loop = asyncio.get_running_loop()
     return list(await asyncio.gather(*[loop.run_in_executor(None, score_text, text, lang) for text in texts]))
+
+
+# ── Дозапись новых лемм в CSV ────────────────────────────────────────────────
+
+
+def clean_lemma(raw: str) -> str:
+    """Публичная обёртка над нормализацией леммы — для сверки на дубли извне модуля."""
+    return _clean_lemma(raw)
+
+
+def existing_lemmas(lang: LemmaLang) -> set[str]:
+    """Все леммы (одиночные слова + фразы), уже присутствующие в словаре `lang`."""
+    single_dict, phrase_dict, _, _ = _load_index(lang)
+    return set(single_dict) | set(phrase_dict)
+
+
+def _format_weight(value: object) -> str:
+    """Число 0.0..1.0 → строка в стиле исходных CSV (запятая как разделитель, без хвостовых нулей)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        f = 0.0
+    f = max(0.0, min(1.0, f))
+    s = f"{f:.4f}".rstrip("0").rstrip(".")
+    if s in ("", "-0"):
+        s = "0"
+    return s.replace(".", ",")
+
+
+class MergedLangNotWritableError(ValueError):
+    """*_merged языки — вычисляемая комбинация двух словарей, своего CSV-файла нет."""
+
+
+def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, list[str]]:
+    """
+    Дописать леммы в CSV-словарь `lang`.
+
+    items: [{"lemma": str, "weights": {col: float, ...}, "category": str}, ...]
+    Возвращает (сколько_добавлено, список_пропущенных_как_дубли).
+
+    Дубли отсекаются как против уже загруженного словаря, так и внутри самого
+    батча (чтобы одна и та же лемма не попала в CSV дважды за один вызов).
+    После успешной записи кэш индекса сбрасывается — следующий score_text/
+    extract_new_lemmas увидит новые леммы.
+    """
+    if lang in _MERGED_COMPONENTS:
+        raise MergedLangNotWritableError(
+            f"'{lang.value}' — вычисляемый merged-словарь (сумма двух других), нет своего CSV-файла"
+        )
+
+    path = _find_csv(lang)
+    already = existing_lemmas(lang)
+
+    skipped: list[str] = []
+    new_lines: list[str] = []
+    seen_in_batch: set[str] = set()
+
+    for item in items:
+        lemma_raw = str(item.get("lemma", "")).strip()
+        key = _clean_lemma(lemma_raw)
+        if not key:
+            continue
+        if key in already or key in seen_in_batch:
+            skipped.append(lemma_raw)
+            continue
+        seen_in_batch.add(key)
+
+        weights = item.get("weights") or {}
+        values = [_format_weight(weights.get(col, 0.0)) for col in CSV_COLUMNS]
+        category = str(item.get("category", "")).strip()
+        new_lines.append(";".join([lemma_raw, *values, category]))
+
+    if not new_lines:
+        return 0, skipped
+
+    encoding = _detect_encoding(path)
+    # utf-8-sig пишет BOM при каждом первом write() потока — в append-режиме это
+    # вставило бы второй BOM в середину файла. Файл уже содержит BOM, если он был.
+    write_encoding = "utf-8" if encoding == "utf-8-sig" else encoding
+
+    with open(path, "rb") as fh:
+        fh.seek(0, 2)
+        has_content = fh.tell() > 0
+        needs_leading_newline = False
+        if has_content:
+            fh.seek(-1, 2)
+            needs_leading_newline = fh.read(1) not in (b"\n", b"\r")
+
+    with open(path, "a", encoding=write_encoding, newline="") as fh:
+        if needs_leading_newline:
+            fh.write("\n")
+        fh.write("\n".join(new_lines) + "\n")
+
+    _load_index.cache_clear()
+    logger.info("lemma_csv_appended", lang=lang.value, added=len(new_lines), skipped=len(skipped))
+    return len(new_lines), skipped

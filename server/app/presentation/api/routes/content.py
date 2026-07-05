@@ -7,6 +7,8 @@ from datetime import date, datetime
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.services.content import lemma_scorer
+from app.application.services.content.lemma_llm_extractor import extract_new_lemmas
 from app.application.services.content.lemma_scorer import LemmaLang, read_baseline
 from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
@@ -16,13 +18,18 @@ from app.presentation.schemas.analysis import (
     CategoryLemmaByDayResponse,
     CategoryLangItem,
     LemmaAnalysisResult,
+    LemmaAppendRequest,
+    LemmaAppendResponse,
     LemmaBaselineResponse,
     LemmaCategoriesRequest,
+    LemmaExtractRequest,
+    LemmaExtractResponse,
     LemmaSourcesRequest,
     LemmaTextRequest,
     LLMChatRequest,
     LLMChatResponse,
     LLMOverrideRequest,
+    NewLemmaItem,
     SourceAnalyzeResponse,
     SourceLemmaAnalysisResponse,
     SourceStoredSchwartzResponse,
@@ -182,6 +189,53 @@ async def analyze_category_lemma_by_day(
         db, category_name, lang=lang, granularity=granularity,
         limit=limit, date_from=date_from, date_to=date_to,
     )
+
+
+@router.post(
+    "/lemma/extract",
+    response_model=LemmaExtractResponse,
+    summary="LLM предлагает до 10 новых лемм для словаря по тексту (ничего не сохраняет)",
+)
+async def extract_lemma_candidates(
+    body: LemmaExtractRequest,
+    lang: LemmaLang = Query(
+        LemmaLang.ru, description="Словарь, с которым сверяем дубли: ru, ru_un, usa, usa_un, frg"
+    ),
+) -> LemmaExtractResponse:
+    """
+    Прогоняет текст через словарный метод (чтобы узнать, какие леммы `lang` уже
+    встретились), затем просит LLM подобрать новые, не повторяющиеся леммы по тем
+    же 10 измерениям ЦКМ. Результат — превью для ручной проверки; чтобы сохранить
+    леммы в CSV, передайте `new_lemmas` из ответа в `/analyze/lemma/append`.
+    """
+    new_lemmas, matched = await extract_new_lemmas(
+        body.text, lang, provider=body.provider, model=body.model
+    )
+    return LemmaExtractResponse(
+        lang=lang,
+        already_matched=matched,
+        new_lemmas=[NewLemmaItem(**item) for item in new_lemmas],
+    )
+
+
+@router.post(
+    "/lemma/append",
+    response_model=LemmaAppendResponse,
+    summary="Дозаписать подтверждённые леммы в CSV-словарь",
+)
+def append_lemma_candidates(
+    body: LemmaAppendRequest,
+    lang: LemmaLang = Query(
+        ..., description="Словарь для записи: ru, ru_un, usa, usa_un, frg (merged — вычисляемые, только для чтения)"
+    ),
+) -> LemmaAppendResponse:
+    try:
+        added, skipped = lemma_scorer.append_lemmas(
+            lang, [item.model_dump() for item in body.lemmas]
+        )
+    except lemma_scorer.MergedLangNotWritableError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return LemmaAppendResponse(lang=lang, added=added, skipped_duplicates=skipped)
 
 
 @router.post(

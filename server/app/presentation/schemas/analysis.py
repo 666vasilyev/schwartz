@@ -43,6 +43,56 @@ class LemmaBaselineResponse(BaseModel):
     schwartz_values: dict[str, float]
 
 
+class LemmaExtractRequest(BaseModel):
+    """Запрос на извлечение новых лемм для словаря через LLM (текст не сохраняется, только анализируется)."""
+
+    text: str = Field(..., min_length=1, description="Текст (например, выступление) для анализа")
+    provider: str | None = Field(None, description="Провайдер LLM. По умолчанию — активный.")
+    model: str | None = Field(None, description="Модель LLM. По умолчанию — активная.")
+
+
+class NewLemmaItem(BaseModel):
+    """Одна кандидатная лемма с весами по 10 измерениям ЦКМ (порядок соответствует колонкам CSV)."""
+
+    lemma: str = Field(..., min_length=1, description="Лемма или устойчивое словосочетание")
+    weights: dict[str, float] = Field(
+        ...,
+        description="Вес 0.0–1.0 по каждому из 10 измерений ЦКМ (ключи — названия колонок CSV)",
+    )
+    category: str = Field("", description="Категория(и) через ' / ', как в исходных CSV-словарях")
+
+
+class LemmaExtractResponse(BaseModel):
+    """Кандидаты LLM на добавление в словарь — ничего не сохраняется, только предпросмотр."""
+
+    lang: LemmaLang
+    already_matched: list[str] = Field(
+        default_factory=list,
+        description="Леммы словаря, уже встретившиеся в тексте (LLM просили их не повторять)",
+    )
+    new_lemmas: list[NewLemmaItem] = Field(
+        default_factory=list,
+        description="До 10 новых лемм, не повторяющихся со словарём и друг с другом",
+    )
+
+
+class LemmaAppendRequest(BaseModel):
+    """Запрос на дозапись подтверждённых лемм (обычно — результат /lemma/extract) в CSV-словарь."""
+
+    lemmas: list[NewLemmaItem] = Field(..., min_length=1, max_length=50)
+
+
+class LemmaAppendResponse(BaseModel):
+    """Результат дозаписи лемм в CSV-словарь."""
+
+    lang: LemmaLang
+    added: int = Field(description="Сколько лемм реально дописано в CSV")
+    skipped_duplicates: list[str] = Field(
+        default_factory=list,
+        description="Леммы, пропущенные как дубли (уже в словаре или повторились внутри запроса)",
+    )
+
+
 class LemmaAnalysisResult(BaseModel):
     """Результат анализа текста по словарному методу."""
 
