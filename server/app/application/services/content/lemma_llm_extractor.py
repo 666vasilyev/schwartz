@@ -26,8 +26,9 @@ logger = get_logger(__name__)
 
 TARGET_COUNT = 10
 _REQUEST_COUNT = 15  # с запасом: часть кандидатов может отсеяться как дубль
-_MAX_TOKENS = 6144  # позиционный массив весов компактнее dict с длинными русскими ключами,
-# но запас нужен: thinking-модель может не уложиться в 10 лемм с первой попытки
+_MAX_TOKENS = 4096  # позиционный массив весов компактнее dict с длинными русскими ключами;
+# без нужды не завышаем — на слабом железе лишние токены сильно удлиняют генерацию,
+# а жёсткий потолок по времени всё равно стоит в app/infrastructure/clients/llm.py
 
 _COLUMNS_HINT = "\n".join(f"{i + 1}. {col}" for i, col in enumerate(CSV_COLUMNS))
 _ZEROS_EXAMPLE = ", ".join("0.0" for _ in CSV_COLUMNS)
