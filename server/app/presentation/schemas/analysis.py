@@ -90,8 +90,18 @@ class LemmaExtractResponse(BaseModel):
     )
 
 
+class LemmaListResponse(BaseModel):
+    """Текущее содержимое CSV-словаря — просмотр перед/после ручного редактирования."""
+
+    lang: LemmaLang
+    total: int = Field(description="Всего лемм в словаре после фильтра search (если задан)")
+    offset: int
+    limit: int
+    lemmas: list[NewLemmaItem] = Field(default_factory=list, description="Страница строк, отсортировано по лемме")
+
+
 class LemmaAppendRequest(BaseModel):
-    """Запрос на дозапись подтверждённых лемм (обычно — результат /lemma/extract) в CSV-словарь."""
+    """Запрос на дозапись лемм (вручную или результат /lemma/extract) в CSV-словарь."""
 
     lemmas: list[NewLemmaItem] = Field(..., min_length=1, max_length=50)
 

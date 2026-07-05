@@ -193,6 +193,40 @@ def _load_index(lang: LemmaLang) -> _Index:
         return {}, {}, None, {}
 
 
+def list_lemmas(
+    lang: LemmaLang,
+    *,
+    search: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """
+    Текущее содержимое словаря `lang` (включая merged — они читаются как обычно,
+    просто без права записи в append_lemmas). Для просмотра перед/после ручного
+    редактирования CSV.
+
+    search — подстрока для фильтра по лемме (регистронезависимо).
+    Возвращает (страница_строк, всего_после_фильтра); строки отсортированы по лемме.
+    """
+    single_dict, phrase_dict, _, categories_dict = _load_index(lang)
+    all_lemmas = sorted(set(single_dict) | set(phrase_dict))
+
+    if search:
+        needle = search.strip().casefold()
+        all_lemmas = [lemma for lemma in all_lemmas if needle in lemma.casefold()]
+
+    total = len(all_lemmas)
+    page = all_lemmas[offset : offset + limit]
+
+    rows: list[dict] = []
+    for lemma in page:
+        weights = single_dict.get(lemma) or phrase_dict.get(lemma) or {}
+        category = " / ".join(categories_dict.get(lemma, []))
+        rows.append({"lemma": lemma, "weights": dict(weights), "category": category})
+
+    return rows, total
+
+
 def score_text(text: str, lang: LemmaLang = LemmaLang.ru) -> LemmaScoreResult:
     zero = {k: 0.0 for k in CSV_COLUMNS}
     empty: LemmaScoreResult = (zero, [], {})

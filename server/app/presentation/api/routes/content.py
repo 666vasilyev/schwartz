@@ -24,6 +24,7 @@ from app.presentation.schemas.analysis import (
     LemmaCategoriesRequest,
     LemmaExtractRequest,
     LemmaExtractResponse,
+    LemmaListResponse,
     LemmaSourcesRequest,
     LemmaTextRequest,
     LLMChatRequest,
@@ -218,6 +219,17 @@ async def extract_lemma_candidates(
     )
 
 
+def _append_lemmas_to_csv(body: LemmaAppendRequest, lang: LemmaLang) -> LemmaAppendResponse:
+    """Общая логика для /lemma/append и /lemma/csv (POST) — дозапись в CSV-словарь."""
+    try:
+        added, skipped = lemma_scorer.append_lemmas(
+            lang, [item.model_dump() for item in body.lemmas]
+        )
+    except lemma_scorer.MergedLangNotWritableError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    return LemmaAppendResponse(lang=lang, added=added, skipped_duplicates=skipped)
+
+
 @router.post(
     "/lemma/append",
     response_model=LemmaAppendResponse,
@@ -229,13 +241,30 @@ def append_lemma_candidates(
         ..., description="Словарь для записи: ru, ru_un, usa, usa_un, frg (merged — вычисляемые, только для чтения)"
     ),
 ) -> LemmaAppendResponse:
-    try:
-        added, skipped = lemma_scorer.append_lemmas(
-            lang, [item.model_dump() for item in body.lemmas]
-        )
-    except lemma_scorer.MergedLangNotWritableError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return LemmaAppendResponse(lang=lang, added=added, skipped_duplicates=skipped)
+    return _append_lemmas_to_csv(body, lang)
+
+
+@router.get(
+    "/lemma/csv",
+    response_model=LemmaListResponse,
+    summary="Просмотреть текущее содержимое CSV-словаря",
+)
+def list_lemma_csv(
+    lang: LemmaLang = Query(
+        ..., description="Словарь: ru, ru_un, ru_merged, usa, usa_un, usa_merged, frg"
+    ),
+    search: str | None = Query(None, description="Подстрока для фильтра по лемме (регистронезависимо)"),
+    limit: int = Query(100, ge=1, le=1000, description="Сколько строк вернуть за один запрос"),
+    offset: int = Query(0, ge=0, description="Сколько строк пропустить (пагинация)"),
+) -> LemmaListResponse:
+    rows, total = lemma_scorer.list_lemmas(lang, search=search, limit=limit, offset=offset)
+    return LemmaListResponse(
+        lang=lang,
+        total=total,
+        offset=offset,
+        limit=limit,
+        lemmas=[NewLemmaItem(**row) for row in rows],
+    )
 
 
 @router.post(
