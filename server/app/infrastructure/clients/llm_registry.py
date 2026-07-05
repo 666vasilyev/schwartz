@@ -86,7 +86,7 @@ def get_provider(provider_name: str | None = None):
     if provider_name == "ollama":
         instance = OllamaProvider(base_url=s.ollama_base_url)
     elif provider_name == "openai":
-        instance = OpenAIProvider(api_key=s.openai_api_key, base_url=s.openai_base_url)
+        instance = OpenAIProvider(api_key=s.openai_api_key, base_url=s.openai_base_url, proxy=s.proxy or None)
     else:
         raise ValueError(f"Неизвестный провайдер: {provider_name!r}. Доступны: {list(MODELS_CATALOG)}")
 

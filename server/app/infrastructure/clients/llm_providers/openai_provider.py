@@ -4,6 +4,12 @@
 response_format={"type": "json_object"} — реальный OpenAI его соблюдает
 надёжно (в отличие от локальных thinking-моделей). extract_json оставлен как
 подстраховка на случай, если модель всё же обернёт JSON в лишний текст.
+
+Прокси: тот же settings.proxy, что используется для Telegram (см.
+app/infrastructure/telegram/client.py) — IP датацентра часто блокируется
+OpenAI (403 Forbidden), поэтому трафик заворачивается через тот же SOCKS5.
+httpx (с установленным httpx[socks]) принимает прокси прямо URL-строкой,
+без ручной конвертации в кортеж, как это нужно для Telethon.
 """
 from __future__ import annotations
 
@@ -24,15 +30,23 @@ class OpenAIProvider(LLMProvider):
     """
     Провайдер для OpenAI API.
     base_url — адрес с /v1, например https://api.openai.com/v1
+    proxy — тот же SOCKS5, что и для Telegram, например socks5://host-gateway:1080
     """
 
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://api.openai.com/v1",
+        proxy: str | None = None,
+    ) -> None:
         if not api_key:
             logger.warning("openai_provider_no_api_key")
         self._chat_url = base_url.rstrip("/") + "/chat/completions"
+        logger.info("openai_provider_init", proxy_configured=bool(proxy))
         self._http = httpx.AsyncClient(
             timeout=httpx.Timeout(120.0, connect=10.0),
             headers={"Authorization": f"Bearer {api_key}"},
+            proxy=proxy or None,
         )
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
