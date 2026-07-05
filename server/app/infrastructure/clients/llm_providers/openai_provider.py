@@ -10,10 +10,15 @@ app/infrastructure/telegram/client.py) — IP датацентра часто б
 OpenAI (403 Forbidden), поэтому трафик заворачивается через тот же SOCKS5.
 httpx (с установленным httpx[socks]) принимает прокси прямо URL-строкой,
 без ручной конвертации в кортеж, как это нужно для Telethon.
+
+Особенности линейки GPT-5.x (reasoning-модели):
+- Параметр "max_tokens" отклоняется с 400 — нужен "max_completion_tokens".
+- Кастомная "temperature" отклоняется с 400 — эти модели работают только с
+  дефолтным значением (управление через reasoning_effort, не temperature).
+  Поэтому temperature в payload не передаём вообще.
 """
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
@@ -24,6 +29,11 @@ from app.infrastructure.clients.llm_providers.json_utils import extract_json
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+class OpenAIRequestError(RuntimeError):
+    """400/4xx от OpenAI с телом ответа — чтобы в логах было видно реальную причину,
+    а не только код статуса (message от сервера обычно точно называет проблемный параметр)."""
 
 
 class OpenAIProvider(LLMProvider):
@@ -60,21 +70,28 @@ class OpenAIProvider(LLMProvider):
         max_tokens: int,
         response_format: dict | None = None,
     ) -> str:
+        # temperature намеренно не передаём — GPT-5.x отвечает 400 на любое
+        # значение, кроме дефолтного (см. docstring модуля).
         payload: dict[str, Any] = {
             "model": model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
+            "max_completion_tokens": max_tokens,
             "stream": False,
         }
         if response_format is not None:
             payload["response_format"] = response_format
 
         resp = await self._http.post(self._chat_url, json=payload)
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            # Тело ответа обычно содержит точную причину (например, какой именно
+            # параметр не поддерживается этой моделью) — без этого 400/404 от
+            # OpenAI в логах выглядят одинаково нечитаемо для всех причин.
+            raise OpenAIRequestError(
+                f"{resp.status_code} {resp.reason_phrase} for model {model!r}: {resp.text[:500]}"
+            )
         data = resp.json()
         msg = data["choices"][0]["message"]
         content = msg.get("content") or ""
