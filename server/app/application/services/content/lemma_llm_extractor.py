@@ -124,19 +124,22 @@ async def extract_new_lemmas(
     text: str,
     lang: LemmaLang,
     *,
+    count: int = TARGET_COUNT,
     provider: str | None = None,
     model: str | None = None,
 ) -> tuple[list[dict], list[str]]:
     """
     Вернуть (новые_леммы, already_matched).
 
-    новые_леммы — до `TARGET_COUNT` dict {"lemma", "weights", "category"},
+    новые_леммы — до `count` dict {"lemma", "weights", "category"},
     отфильтрованных от дублей со словарём `lang` и друг с другом.
     already_matched — леммы словаря, уже встретившиеся в тексте (что мы просили LLM не повторять).
 
     Одна лемма запрашивается за один вызов LLM (см. docstring модуля) — на плохо
-    ответившем вызове теряется только одна лемма, а не весь батч.
+    ответившем вызове теряется только одна лемма, а не весь батч. Соответственно,
+    чем больше `count`, тем больше последовательных вызовов LLM и тем дольше ответ.
     """
+    target = max(1, count)
     _, matched, _ = score_text(text, lang)
     already = existing_lemmas(lang)
 
@@ -146,11 +149,11 @@ async def extract_new_lemmas(
     result: list[dict] = []
     seen: set[str] = set()
     exclude_running: list[str] = list(matched)
-    max_attempts = TARGET_COUNT * _ATTEMPTS_MULTIPLIER
+    max_attempts = target * _ATTEMPTS_MULTIPLIER
     attempts_used = 0
 
     for attempts_used in range(1, max_attempts + 1):
-        if len(result) >= TARGET_COUNT:
+        if len(result) >= target:
             break
 
         system = _build_system_prompt(exclude_running)

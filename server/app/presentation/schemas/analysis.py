@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.application.services.content.lemma_llm_extractor import TARGET_COUNT as _DEFAULT_LEMMA_COUNT
 from app.application.services.content.lemma_scorer import LemmaLang
 from app.use_case.analyze._time_utils import TimeGranularity
 
@@ -47,6 +48,15 @@ class LemmaExtractRequest(BaseModel):
     """Запрос на извлечение новых лемм для словаря через LLM (текст не сохраняется, только анализируется)."""
 
     text: str = Field(..., min_length=1, description="Текст (например, выступление) для анализа")
+    count: int = Field(
+        _DEFAULT_LEMMA_COUNT,
+        ge=1,
+        le=20,
+        description=(
+            "Сколько новых лемм подобрать (LLM вызывается по одной лемме за раз, "
+            "так что большие значения заметно увеличивают время ответа)"
+        ),
+    )
     provider: str | None = Field(None, description="Провайдер LLM. По умолчанию — активный.")
     model: str | None = Field(None, description="Модель LLM. По умолчанию — активная.")
 
@@ -72,7 +82,7 @@ class LemmaExtractResponse(BaseModel):
     )
     new_lemmas: list[NewLemmaItem] = Field(
         default_factory=list,
-        description="До 10 новых лемм, не повторяющихся со словарём и друг с другом",
+        description="До `count` новых лемм (см. запрос), не повторяющихся со словарём и друг с другом",
     )
 
 

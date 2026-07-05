@@ -209,7 +209,7 @@ async def extract_lemma_candidates(
     леммы в CSV, передайте `new_lemmas` из ответа в `/analyze/lemma/append`.
     """
     new_lemmas, matched = await extract_new_lemmas(
-        body.text, lang, provider=body.provider, model=body.model
+        body.text, lang, count=body.count, provider=body.provider, model=body.model
     )
     return LemmaExtractResponse(
         lang=lang,
