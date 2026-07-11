@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 import feedparser
 
 from app.infrastructure.rss.fetch import fetch_feed_bytes
+from app.utils.html_text import strip_html
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -44,14 +45,16 @@ def normalize_feed_url(url: str) -> str:
 
 
 def _entry_text(entry: Any) -> str | None:
+    # summary/content от feedparser часто содержат сырой HTML (<p>, <a>, списки) —
+    # убираем разметку, оставляя читаемый текст (см. app/utils/html_text.py).
     if entry.get("summary"):
-        return str(entry.summary).strip() or None
+        return strip_html(str(entry.summary))
     if entry.get("content"):
         c = entry.content
         if isinstance(c, list) and c:
             v = c[0].get("value") if isinstance(c[0], dict) else getattr(c[0], "value", None)
             if v:
-                return str(v).strip() or None
+                return strip_html(str(v))
     return None
 
 
