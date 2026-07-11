@@ -220,20 +220,20 @@ async def extract_lemma_candidates(
 
 
 def _append_lemmas_to_csv(body: LemmaAppendRequest, lang: LemmaLang) -> LemmaAppendResponse:
-    """Общая логика для /lemma/append и /lemma/csv (POST) — дозапись в CSV-словарь."""
+    """Общая логика для /lemma/append и /lemma/csv (POST) — upsert в CSV-словарь."""
     try:
-        added, skipped = lemma_scorer.append_lemmas(
+        added, updated, skipped = lemma_scorer.append_lemmas(
             lang, [item.model_dump() for item in body.lemmas]
         )
     except lemma_scorer.MergedLangNotWritableError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return LemmaAppendResponse(lang=lang, added=added, skipped_duplicates=skipped)
+    return LemmaAppendResponse(lang=lang, added=added, updated=updated, skipped_duplicates=skipped)
 
 
 @router.post(
     "/lemma/append",
     response_model=LemmaAppendResponse,
-    summary="Дозаписать подтверждённые леммы в CSV-словарь",
+    summary="Добавить новые / обновить существующие леммы в CSV-словаре",
 )
 def append_lemma_candidates(
     body: LemmaAppendRequest,

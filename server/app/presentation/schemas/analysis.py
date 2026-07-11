@@ -107,13 +107,14 @@ class LemmaAppendRequest(BaseModel):
 
 
 class LemmaAppendResponse(BaseModel):
-    """Результат дозаписи лемм в CSV-словарь."""
+    """Результат добавления/обновления лемм в CSV-словаре (upsert)."""
 
     lang: LemmaLang
-    added: int = Field(description="Сколько лемм реально дописано в CSV")
+    added: int = Field(description="Сколько лемм было новыми и дописано в конец CSV")
+    updated: int = Field(0, description="Сколько лемм уже было в словаре — их старые строки заменены новыми значениями")
     skipped_duplicates: list[str] = Field(
         default_factory=list,
-        description="Леммы, пропущенные как дубли (уже в словаре или повторились внутри запроса)",
+        description="Леммы, пропущенные как повтор внутри одного запроса (одна и та же лемма дважды)",
     )
 
 

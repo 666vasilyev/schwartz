@@ -339,17 +339,18 @@ class MergedLangNotWritableError(ValueError):
     """*_merged языки — вычисляемая комбинация двух словарей, своего CSV-файла нет."""
 
 
-def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, list[str]]:
+def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, int, list[str]]:
     """
-    Дописать леммы в CSV-словарь `lang`.
+    Добавить новые и обновить уже существующие леммы в CSV-словаре `lang` (upsert).
 
     items: [{"lemma": str, "weights": {col: float, ...}, "category": str}, ...]
-    Возвращает (сколько_добавлено, список_пропущенных_как_дубли).
+    Возвращает (сколько_добавлено, сколько_обновлено, леммы_пропущенные_как_дубль_внутри_запроса).
 
-    Дубли отсекаются как против уже загруженного словаря, так и внутри самого
-    батча (чтобы одна и та же лемма не попала в CSV дважды за один вызов).
-    После успешной записи кэш индекса сбрасывается — следующий score_text/
-    extract_new_lemmas увидит новые леммы.
+    Если лемма уже есть в словаре — её старая строка удаляется и заменяется новой
+    (а не молча игнорируется, как было раньше). Повтор одной и той же леммы дважды
+    в одном вызове — второе вхождение пропускается (skipped), выигрывает первое.
+    После записи кэш индекса сбрасывается — следующий score_text/extract_new_lemmas
+    увидит обновлённые значения.
     """
     if lang in _MERGED_COMPONENTS:
         raise MergedLangNotWritableError(
@@ -361,17 +362,17 @@ def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, list[str]]:
 
     skipped: list[str] = []
     new_lines: list[str] = []
-    seen_in_batch: set[str] = set()
+    upsert_keys: set[str] = set()
 
     for item in items:
         lemma_raw = str(item.get("lemma", "")).strip()
         key = _clean_lemma(lemma_raw)
         if not key:
             continue
-        if key in already or key in seen_in_batch:
+        if key in upsert_keys:
             skipped.append(lemma_raw)
             continue
-        seen_in_batch.add(key)
+        upsert_keys.add(key)
 
         weights = item.get("weights") or {}
         values = [_format_weight(weights.get(col, 0.0)) for col in CSV_COLUMNS]
@@ -379,26 +380,54 @@ def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, list[str]]:
         new_lines.append(";".join([lemma_raw, *values, category]))
 
     if not new_lines:
-        return 0, skipped
+        return 0, 0, skipped
+
+    updated_keys = upsert_keys & already
+    added_count = len(upsert_keys) - len(updated_keys)
 
     encoding = _detect_encoding(path)
-    # utf-8-sig пишет BOM при каждом первом write() потока — в append-режиме это
-    # вставило бы второй BOM в середину файла. Файл уже содержит BOM, если он был.
+    # utf-8-sig пишет BOM при каждом первом write() потока — в append/write-режиме
+    # это вставило бы второй BOM в файл. Файл уже содержит BOM, если он был.
     write_encoding = "utf-8" if encoding == "utf-8-sig" else encoding
 
-    with open(path, "rb") as fh:
-        fh.seek(0, 2)
-        has_content = fh.tell() > 0
-        needs_leading_newline = False
-        if has_content:
-            fh.seek(-1, 2)
-            needs_leading_newline = fh.read(1) not in (b"\n", b"\r")
+    if updated_keys:
+        # Часть лемм уже есть в файле — убираем их старые строки и переписываем
+        # файл целиком вместе с новыми версиями. Без этого шага в файле остались
+        # бы и старая, и новая строка для одной и той же леммы одновременно.
+        with open(path, encoding=encoding, newline="") as fh:
+            lines = fh.read().splitlines()
+        if not lines:
+            raise ValueError(f"CSV-файл словаря '{lang.value}' пуст или повреждён")
+        header, body = lines[0], lines[1:]
+        kept_body = [
+            line for line in body
+            if line.strip() and _clean_lemma(line.split(";", 1)[0]) not in updated_keys
+        ]
+        with open(path, "w", encoding=write_encoding, newline="") as fh:
+            fh.write(header + "\n")
+            for line in kept_body:
+                fh.write(line + "\n")
+            fh.write("\n".join(new_lines) + "\n")
+    else:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            has_content = fh.tell() > 0
+            needs_leading_newline = False
+            if has_content:
+                fh.seek(-1, 2)
+                needs_leading_newline = fh.read(1) not in (b"\n", b"\r")
 
-    with open(path, "a", encoding=write_encoding, newline="") as fh:
-        if needs_leading_newline:
-            fh.write("\n")
-        fh.write("\n".join(new_lines) + "\n")
+        with open(path, "a", encoding=write_encoding, newline="") as fh:
+            if needs_leading_newline:
+                fh.write("\n")
+            fh.write("\n".join(new_lines) + "\n")
 
     _load_index.cache_clear()
-    logger.info("lemma_csv_appended", lang=lang.value, added=len(new_lines), skipped=len(skipped))
-    return len(new_lines), skipped
+    logger.info(
+        "lemma_csv_appended",
+        lang=lang.value,
+        added=added_count,
+        updated=len(updated_keys),
+        skipped=len(skipped),
+    )
+    return added_count, len(updated_keys), skipped
