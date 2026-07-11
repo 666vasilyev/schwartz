@@ -27,6 +27,7 @@ from app.application.services.content.lemma_scorer import (
     existing_lemmas,
     score_text,
 )
+from app.application.services.content.schwartz_values import normalize_to_unit_sum
 from app.infrastructure.clients.llm import ask_llm_json
 from app.utils.logger import get_logger
 
@@ -79,6 +80,14 @@ def _build_system_prompt(exclude: list[str]) -> str:
 
 
 def _normalize_weights(raw: object) -> dict[str, float]:
+    """
+    Веса от LLM → фиксированные ключи CSV_COLUMNS, каждое значение 0.0..1.0,
+    сумма по всем 10 направлениям нормализована к 1.0 (см. normalize_to_unit_sum
+    в schwartz_values.py — та же логика, что и для оценки Шварца по тексту).
+
+    Если LLM поставила везде 0.0 (сумма ≤ 0) — нормализовать не к чему,
+    возвращаем как есть, не выдумывая равномерное распределение.
+    """
     out: dict[str, float] = {k: 0.0 for k in CSV_COLUMNS}
 
     def _to_float(v: object) -> float:
@@ -92,17 +101,14 @@ def _normalize_weights(raw: object) -> dict[str, float]:
         # Позиционный формат: i-е число соответствует i-й колонке CSV_COLUMNS.
         for col, v in zip(CSV_COLUMNS, raw):
             out[col] = _to_float(v)
-        return out
-
-    if isinstance(raw, dict):
+    elif isinstance(raw, dict):
         for k, v in raw.items():
             canonical = _COLUMN_LOOKUP.get(re.sub(r"\s+", "", str(k)).casefold())
             if canonical is None:
                 continue
             out[canonical] = _to_float(v)
-        return out
 
-    return out
+    return normalize_to_unit_sum(out)
 
 
 def _extract_single_item(raw: object) -> dict | None:
