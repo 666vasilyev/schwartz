@@ -10,9 +10,14 @@ LLM-разметка сюжетных кластеров: заголовок, к
 """
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Sequence
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.clients.llm import ask_llm_json
+from app.infrastructure.db.orm.models import StoryCluster
+from app.infrastructure.db.orm.session import AsyncSessionLocal
 from app.infrastructure.repositories import (
     get_cluster_by_id,
     list_cluster_post_texts,
@@ -24,6 +29,10 @@ logger = get_logger(__name__)
 
 _MAX_CHARS_PER_POST = 800
 _MAX_POSTS_FOR_LABELING = 5
+# Верхняя граница одновременных LLM/DB-вызовов при lazy-доразметке трендов —
+# защищает пул соединений (pool_size=10 + max_overflow=20) и LLM-провайдера
+# от всплеска, когда в выдаче сразу много неразмеченных кластеров.
+_LAZY_LABELING_CONCURRENCY = 8
 
 _SYSTEM = (
     "Ты помощник новостного редактора. На вход — несколько постов СМИ "
@@ -102,3 +111,61 @@ async def label_cluster(db: AsyncSession, cluster_id: int) -> bool:
         topics=topics,
     )
     return True
+
+
+async def _label_cluster_isolated(cluster_id: int) -> bool:
+    """
+    Разметка одного кластера в собственной сессии/транзакции — нужна, чтобы
+    несколько кластеров можно было размечать конкурентно (asyncio.gather):
+    AsyncSession не потокобезопасна для параллельных операций на одном объекте.
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            ok = await label_cluster(session, cluster_id)
+            await session.commit()
+            return ok
+        except Exception as exc:
+            await session.rollback()
+            logger.warning(
+                "cluster_labeling_isolated_failed",
+                cluster_id=cluster_id,
+                error=str(exc),
+            )
+            return False
+
+
+async def ensure_labels_for_clusters(cluster_ids: Sequence[int]) -> None:
+    """
+    Лениво доразмечает через LLM переданные кластеры, параллельно (с ограничением
+    concurrency), каждый — в своей сессии. Ошибки отдельных кластеров не прерывают
+    остальные (см. _label_cluster_isolated — сам гасит исключения).
+    """
+    ids = list(dict.fromkeys(int(cid) for cid in cluster_ids))  # dedupe, сохраняем порядок
+    if not ids:
+        return
+
+    semaphore = asyncio.Semaphore(_LAZY_LABELING_CONCURRENCY)
+
+    async def _bounded(cid: int) -> None:
+        async with semaphore:
+            await _label_cluster_isolated(cid)
+
+    await asyncio.gather(*(_bounded(cid) for cid in ids))
+
+
+async def label_missing_in_rows(
+    db: AsyncSession,
+    rows: Sequence[tuple[StoryCluster, int, int]],
+) -> None:
+    """
+    Хелпер для trending-эндпоинтов: находит среди строк (cluster, posts_in_window,
+    sources_in_window) кластеры без title, доразмечает их конкурентно в изолированных
+    сессиях, затем обновляет переданные ORM-объекты в сессии текущего запроса
+    (db.refresh), чтобы в ответ ушли свежие title/summary/topics.
+    """
+    unlabeled = [cluster for cluster, _, _ in rows if cluster.title is None]
+    if not unlabeled:
+        return
+    await ensure_labels_for_clusters([int(c.id) for c in unlabeled])
+    for cluster in unlabeled:
+        await db.refresh(cluster)
