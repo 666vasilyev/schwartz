@@ -64,6 +64,7 @@ from .source_schwartz import (
 )
 from .post_embedding import (
     get_embedding,
+    get_embeddings_by_post_ids,
     list_posts_missing_embedding,
     upsert_embedding,
 )
@@ -81,6 +82,7 @@ from .story_cluster import (
     list_clusters,
     list_first_sources,
     list_posts_in_cluster,
+    list_posts_without_assignment,
     list_trending,
     list_trending_by_categories,
     list_trending_by_sources,
@@ -140,6 +142,7 @@ __all__ = [
     "replace_source_schwartz",
     # post embeddings
     "get_embedding",
+    "get_embeddings_by_post_ids",
     "list_posts_missing_embedding",
     "upsert_embedding",
     # story clusters
@@ -156,6 +159,7 @@ __all__ = [
     "list_clusters",
     "list_first_sources",
     "list_posts_in_cluster",
+    "list_posts_without_assignment",
     "list_trending",
     "list_trending_by_categories",
     "list_trending_by_sources",

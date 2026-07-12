@@ -191,6 +191,36 @@ async def get_assignment_by_post(
     return res.scalar_one_or_none()
 
 
+async def list_posts_without_assignment(
+    db: AsyncSession, *, limit: int
+) -> list[Post]:
+    """
+    Посты с непустым текстом, у которых ещё нет назначения в кластер.
+
+    Это основной селектор "что кластеризовать дальше" — и для фонового тика,
+    и для rebuild. Раньше вместо этого использовался list_posts_missing_embedding
+    ("нет эмбеддинга") — но после rebuild(clear=True) assignments стираются,
+    а embeddings нарочно остаются (не пересчитываем зря), из-за чего такие
+    посты переставали быть "missing embedding" и НИКОГДА больше не подхватывались
+    ни фоновым раннером, ни повторным rebuild — кластеризация тихо останавливалась
+    насовсем. Проверка "нет назначения" верна в обоих случаях независимо от того,
+    есть эмбеддинг или нет (см. cluster_posts_batch — досчитывает эмбеддинг сам,
+    если его ещё нет).
+    """
+    res = await db.execute(
+        select(Post)
+        .outerjoin(
+            PostClusterAssignment, PostClusterAssignment.post_id == Post.id
+        )
+        .where(Post.text.isnot(None))
+        .where(Post.text != "")
+        .where(PostClusterAssignment.post_id.is_(None))
+        .order_by(Post.id.asc())
+        .limit(limit)
+    )
+    return list(res.scalars().all())
+
+
 async def count_posts_in_cluster(db: AsyncSession, cluster_id: int) -> int:
     res = await db.execute(
         select(func.count()).where(PostClusterAssignment.cluster_id == cluster_id)

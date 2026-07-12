@@ -48,7 +48,8 @@ from app.infrastructure.repositories import (
     find_nearest_active_cluster,
     get_assignment_by_post,
     get_cluster_by_id,
-    list_posts_missing_embedding,
+    get_embeddings_by_post_ids,
+    list_posts_without_assignment,
     upsert_assignment,
     upsert_embedding,
 )
@@ -115,22 +116,32 @@ async def cluster_posts_batch(
             archived_clusters=0,
         )
 
-    # 1. Эмбеддинги одним батчем — это самая дорогая операция
-    texts = [p.text or "" for p in valid_posts]
-    vectors = await embedder.encode_passages(texts)
+    # 1. Эмбеддинги: сначала берём уже посчитанные (например, после rebuild —
+    # там assignments сбрасываются, а embeddings нарочно остаются), и считаем
+    # заново только для постов, у которых их правда ещё нет. Это самая дорогая
+    # операция, поэтому важно не пересчитывать то, что уже есть.
+    existing_vectors = await get_embeddings_by_post_ids(
+        db, [int(p.id) for p in valid_posts], model_name=model_name
+    )
+    to_encode = [p for p in valid_posts if int(p.id) not in existing_vectors]
+    if to_encode:
+        new_vectors = await embedder.encode_passages([p.text or "" for p in to_encode])
+        for p, vec in zip(to_encode, new_vectors, strict=True):
+            existing_vectors[int(p.id)] = vec
+            text_hash = embedder.text_hash(p.text or "")
+            await upsert_embedding(
+                db,
+                post_id=int(p.id),
+                embedding=vec,
+                model_name=model_name,
+                text_hash=text_hash,
+            )
 
     new_clusters = 0
     extended_clusters = 0
 
-    for post, vec in zip(valid_posts, vectors, strict=True):
-        text_hash = embedder.text_hash(post.text or "")
-        await upsert_embedding(
-            db,
-            post_id=int(post.id),
-            embedding=vec,
-            model_name=model_name,
-            text_hash=text_hash,
-        )
+    for post in valid_posts:
+        vec = existing_vectors[int(post.id)]
 
         # Если у поста уже было назначение — не перекластеризуем (идемпотентность для ретраев).
         existing = await get_assignment_by_post(db, int(post.id))
@@ -224,12 +235,17 @@ async def cluster_posts_batch(
 
 async def cluster_unprocessed_posts(db: AsyncSession) -> ClusteringBatchResult:
     """
-    Высокоуровневая обёртка: берёт N постов без эмбеддинга для текущей модели
+    Высокоуровневая обёртка: берёт N постов без назначения в кластер
     и кластеризует их. Используется фоновой задачей и эндпоинтом ручного запуска.
+
+    Раньше отбор шёл по "нет эмбеддинга" (list_posts_missing_embedding), но это
+    ломалось после rebuild(clear=True): embeddings там намеренно сохраняются,
+    поэтому такие посты никогда не считались "необработанными" и кластеризация
+    молча останавливалась. Отбор по "нет назначения" верен независимо от того,
+    есть эмбеддинг уже или нет — cluster_posts_batch досчитает недостающие сам.
     """
-    posts = await list_posts_missing_embedding(
+    posts = await list_posts_without_assignment(
         db,
-        model_name=embedder.model_name(),
         limit=settings.clustering_batch_size,
     )
     return await cluster_posts_batch(db, posts)

@@ -15,6 +15,27 @@ async def get_embedding(db: AsyncSession, post_id: int) -> PostEmbedding | None:
     return res.scalar_one_or_none()
 
 
+async def get_embeddings_by_post_ids(
+    db: AsyncSession, post_ids: list[int], *, model_name: str
+) -> dict[int, list[float]]:
+    """
+    Батчевая выборка уже посчитанных эмбеддингов для набора постов (текущей
+    модели). Используется кластеризацией, чтобы не пересчитывать эмбеддинги
+    для постов, у которых они уже есть (например, после rebuild — там
+    assignments/clusters сбрасываются, а embeddings нарочно остаются, т.к.
+    их пересчёт — самая дорогая операция).
+    """
+    if not post_ids:
+        return {}
+    res = await db.execute(
+        select(PostEmbedding.post_id, PostEmbedding.embedding).where(
+            PostEmbedding.post_id.in_(post_ids),
+            PostEmbedding.model_name == model_name,
+        )
+    )
+    return {pid: list(vec) for pid, vec in res.all()}
+
+
 async def upsert_embedding(
     db: AsyncSession,
     *,
