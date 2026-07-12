@@ -197,9 +197,28 @@ async def _run_collect(
         level="info", data={"limit": limit},
     )
 
-    response = await collect_get.execute(
-        db, source_id=source_id, limit=limit, use_mock=use_mock
-    )
+    try:
+        response = await collect_get.execute(
+            db, source_id=source_id, limit=limit, use_mock=use_mock
+        )
+    except Exception as exc:
+        # Ошибка на этапе скачивания/парсинга ленты (сеть, 403, таймаут, битый XML
+        # и т.п.) никогда не доходит до persist.py — там error_count/status
+        # обновляются только при сбое сохранения в БД. Без этого блока источник
+        # с постоянно падающим fetch остаётся status=active, error_count=0
+        # ("здоров" по /sources/{id}/health) и планировщик продолжает молча
+        # пересоздавать задачи с обычным интервалом, без экспоненциального backoff
+        # (см. calculate_interval — он завязан именно на source.error_count).
+        if src is not None:
+            await update_source(
+                db,
+                source_id,
+                status=SourceStatus.ERROR.value,
+                error_message=str(exc)[:2000],
+                last_error_at=datetime.now(tz=timezone.utc),
+                error_count=(src.error_count or 0) + 1,
+            )
+        raise
 
     total = getattr(response, "total", 0)
     saved = getattr(response, "saved_to_db", 0)
