@@ -3,6 +3,8 @@
 """
 from __future__ import annotations
 
+import calendar
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -82,6 +84,22 @@ def _entry_title(entry: Any) -> str | None:
 
 
 def _entry_published(entry: Any) -> str | None:
+    """
+    Дата публикации записи → ISO8601 UTC-строка (для сервера, см. persist.py::
+    _parse_iso_datetime). Предпочитаем *_parsed — feedparser уже нормализует
+    самые разные форматы дат (RFC822, RFC3339 и т.д.) в struct_time (UTC);
+    сырые строки published/updated бывают в форматах, которые
+    datetime.fromisoformat на сервере не распознаёт, и published_at тогда
+    молча остаётся NULL.
+    """
+    for key in ("published_parsed", "updated_parsed"):
+        v = entry.get(key)
+        if v:
+            try:
+                ts = calendar.timegm(v)
+                return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+            except (TypeError, ValueError, OverflowError):
+                pass
     for key in ("published", "updated"):
         v = entry.get(key)
         if v:

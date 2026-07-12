@@ -215,6 +215,7 @@ async def persist_rss_public_for_source(
                         "text": text,
                         "vk_post_id": None,
                         "owner_id": None,
+                        "published_at": _parse_iso_datetime(item.published),
                     },
                 )
                 if pre is None:
