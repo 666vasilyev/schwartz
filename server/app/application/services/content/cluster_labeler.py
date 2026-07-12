@@ -10,7 +10,6 @@ LLM-разметка сюжетных кластеров: заголовок, к
 """
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Sequence
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,10 +28,6 @@ logger = get_logger(__name__)
 
 _MAX_CHARS_PER_POST = 800
 _MAX_POSTS_FOR_LABELING = 5
-# Верхняя граница одновременных LLM/DB-вызовов при lazy-доразметке трендов —
-# защищает пул соединений (pool_size=10 + max_overflow=20) и LLM-провайдера
-# от всплеска, когда в выдаче сразу много неразмеченных кластеров.
-_LAZY_LABELING_CONCURRENCY = 8
 
 _SYSTEM = (
     "Ты помощник новостного редактора. На вход — несколько постов СМИ "
@@ -115,9 +110,8 @@ async def label_cluster(db: AsyncSession, cluster_id: int) -> bool:
 
 async def _label_cluster_isolated(cluster_id: int) -> bool:
     """
-    Разметка одного кластера в собственной сессии/транзакции — нужна, чтобы
-    несколько кластеров можно было размечать конкурентно (asyncio.gather):
-    AsyncSession не потокобезопасна для параллельных операций на одном объекте.
+    Разметка одного кластера в собственной сессии/транзакции — так каждый вызов
+    коммитится независимо и ошибка одного кластера не откатывает остальные.
     """
     async with AsyncSessionLocal() as session:
         try:
@@ -136,21 +130,21 @@ async def _label_cluster_isolated(cluster_id: int) -> bool:
 
 async def ensure_labels_for_clusters(cluster_ids: Sequence[int]) -> None:
     """
-    Лениво доразмечает через LLM переданные кластеры, параллельно (с ограничением
-    concurrency), каждый — в своей сессии. Ошибки отдельных кластеров не прерывают
+    Лениво доразмечает через LLM переданные кластеры последовательно, один за
+    другим, каждый — в своей сессии. Ошибки отдельных кластеров не прерывают
     остальные (см. _label_cluster_isolated — сам гасит исключения).
+
+    Раньше запускалось параллельно (до 8 одновременных LLM-вызовов) ради
+    скорости, но на практике это било по и без того нестабильному LLM-провайдеру
+    (частые ConnectTimeout/502 под всплеском одновременных соединений) — убрали
+    параллелизм в пользу предсказуемости и меньшей нагрузки на провайдера.
     """
     ids = list(dict.fromkeys(int(cid) for cid in cluster_ids))  # dedupe, сохраняем порядок
     if not ids:
         return
 
-    semaphore = asyncio.Semaphore(_LAZY_LABELING_CONCURRENCY)
-
-    async def _bounded(cid: int) -> None:
-        async with semaphore:
-            await _label_cluster_isolated(cid)
-
-    await asyncio.gather(*(_bounded(cid) for cid in ids))
+    for cid in ids:
+        await _label_cluster_isolated(cid)
 
 
 async def label_missing_in_rows(
@@ -159,7 +153,7 @@ async def label_missing_in_rows(
 ) -> None:
     """
     Хелпер для trending-эндпоинтов: находит среди строк (cluster, posts_in_window,
-    sources_in_window) кластеры без title, доразмечает их конкурентно в изолированных
+    sources_in_window) кластеры без title, доразмечает их по очереди в изолированных
     сессиях, затем обновляет переданные ORM-объекты в сессии текущего запроса
     (db.refresh), чтобы в ответ ушли свежие title/summary/topics.
     """
