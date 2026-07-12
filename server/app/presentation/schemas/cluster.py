@@ -54,6 +54,24 @@ class TrendingClustersResponse(BaseModel):
     min_posts: int
 
 
+class SourceTrendingClustersResponse(BaseModel):
+    """Тренды в рамках заданных источников (один или несколько, union)."""
+
+    items: list[TrendingClusterItem]
+    window_hours: int
+    min_posts: int
+    source_ids: list[int]
+
+
+class CategoryTrendingClustersResponse(BaseModel):
+    """Тренды в рамках заданных категорий источников (одна или несколько, union)."""
+
+    items: list[TrendingClusterItem]
+    window_hours: int
+    min_posts: int
+    category_names: list[str]
+
+
 class ClusterRunResponse(BaseModel):
     """Ответ ручного запуска одного тика кластеризации."""
 

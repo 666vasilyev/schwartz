@@ -6,6 +6,8 @@ from . import (
     rebuild,
     run_cycle,
     trending,
+    trending_by_category,
+    trending_by_source,
 )
 
 __all__ = [
@@ -15,4 +17,6 @@ __all__ = [
     "rebuild",
     "run_cycle",
     "trending",
+    "trending_by_category",
+    "trending_by_source",
 ]

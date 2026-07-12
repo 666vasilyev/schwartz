@@ -2,8 +2,10 @@
 Clusters API — /api/v1/clusters
 
 Эндпоинты:
-  GET    /api/v1/clusters                 — список сюжетов с фильтрами
-  GET    /api/v1/clusters/trending        — трендовые сюжеты за окно
+  GET    /api/v1/clusters                     — список сюжетов с фильтрами
+  GET    /api/v1/clusters/trending            — трендовые сюжеты за окно
+  GET    /api/v1/clusters/trending/by-source   — тренды в рамках источника(ов)
+  GET    /api/v1/clusters/trending/by-category — тренды в рамках категории(й) источников
   GET    /api/v1/clusters/{id}            — карточка сюжета + посты
   POST   /api/v1/clusters/run             — один тик инкрементальной кластеризации
   POST   /api/v1/clusters/rebuild         — полная перестройка (медленно)
@@ -13,17 +15,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.orm.models import StoryClusterStatus
 from app.presentation.api.dependencies import get_session
 from app.presentation.schemas.cluster import (
+    CategoryTrendingClustersResponse,
     ClusterDetailResponse,
     ClusterListResponse,
     ClusterRead,
     ClusterRebuildResponse,
     ClusterRunResponse,
+    SourceTrendingClustersResponse,
     TrendingClustersResponse,
 )
 from app.use_case.clusters import (
@@ -33,6 +37,8 @@ from app.use_case.clusters import (
     rebuild as rebuild_uc,
     run_cycle as run_cycle_uc,
     trending as trending_uc,
+    trending_by_category as trending_by_category_uc,
+    trending_by_source as trending_by_source_uc,
 )
 
 router = APIRouter(prefix="/api/v1/clusters", tags=["Clusters"])
@@ -87,6 +93,80 @@ async def trending_endpoint(
 ) -> TrendingClustersResponse:
     return await trending_uc.execute(
         db,
+        window_hours=window_hours,
+        min_posts=min_posts,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/trending/by-source",
+    response_model=SourceTrendingClustersResponse,
+    summary="Тренды в рамках одного или нескольких источников (СМИ)",
+)
+async def trending_by_source_endpoint(
+    source_ids: list[int] = Query(
+        ...,
+        description=(
+            "ID источника (можно передать один раз — тренд по одному СМИ) "
+            "или несколько раз (?source_ids=1&source_ids=2) — тренд по объединённому "
+            "пулу постов нескольких СМИ"
+        ),
+    ),
+    window_hours: int = Query(
+        24, ge=1, le=168, description="Окно в часах (макс 7 дней)"
+    ),
+    min_posts: int = Query(
+        3, ge=1, description="Минимум постов из заданных источников в окне"
+    ),
+    limit: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_session),
+) -> SourceTrendingClustersResponse:
+    if not source_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Нужен хотя бы один source_id",
+        )
+    return await trending_by_source_uc.execute(
+        db,
+        source_ids=source_ids,
+        window_hours=window_hours,
+        min_posts=min_posts,
+        limit=limit,
+    )
+
+
+@router.get(
+    "/trending/by-category",
+    response_model=CategoryTrendingClustersResponse,
+    summary="Тренды в рамках одной или нескольких категорий источников (СМИ)",
+)
+async def trending_by_category_endpoint(
+    category_names: list[str] = Query(
+        ...,
+        description=(
+            "Имя категории (можно передать один раз — тренд по одной категории) "
+            "или несколько раз (?category_names=tech&category_names=politics) — тренд "
+            "по объединённому пулу постов источников из этих категорий"
+        ),
+    ),
+    window_hours: int = Query(
+        24, ge=1, le=168, description="Окно в часах (макс 7 дней)"
+    ),
+    min_posts: int = Query(
+        3, ge=1, description="Минимум постов из источников заданных категорий в окне"
+    ),
+    limit: int = Query(20, ge=1, le=200),
+    db: AsyncSession = Depends(get_session),
+) -> CategoryTrendingClustersResponse:
+    if not category_names:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Нужна хотя бы одна category_name",
+        )
+    return await trending_by_category_uc.execute(
+        db,
+        category_names=category_names,
         window_hours=window_hours,
         min_posts=min_posts,
         limit=limit,
