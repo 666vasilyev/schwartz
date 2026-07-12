@@ -4,14 +4,28 @@
 Алгоритм single-pass:
   Для каждого нового поста:
     1. Получаем (или считаем) эмбеддинг текста.
-    2. Ищем ближайший центроид среди активных кластеров в скользящем окне.
+    2. Ищем ближайший центроид среди активных кластеров в скользящем окне,
+       исключая кластеры, уже достигшие cluster_max_size (см. ниже).
     3. Если cosine similarity >= threshold — добавляем пост в кластер
-       и пересчитываем центроид: c' = (c * n + e) / (n + 1).
+       и пересчитываем центроид как EMA: c' = alpha*e + (1-alpha)*c.
     4. Иначе — заводим новый кластер с центроидом = e.
 
-Эмбеддинги L2-нормализованы (см. embedder), поэтому в среднем длина центроида
-будет близка к 1; для устойчивости считаем "среднее без перенормировки" — этого
-достаточно для поиска ближайших по cosine_distance.
+EMA вместо running mean по всей истории: раньше центроид считался как
+c' = (c*n + e)/(n+1) — при тысячах постов вес нового поста стремится к 0,
+центроид "замерзает" на среднем по всей истории кластера. Из-за анизотропии
+embedding-пространства такое "среднее по всему" оказывается неожиданно похоже
+почти на любой новый текст (hub-эффект) — кластер начинает лавинообразно
+поглощать вообще не связанные посты (наблюдалось на проде: один кластер
+разросся до тысяч постов из десятков источников на совершенно разные темы).
+EMA держит центроид представлением НЕДАВНЕГО содержимого кластера, а не всей
+его истории, что решает проблему на уровне причины.
+
+cluster_max_size — дополнительная страховка независимо от качества центроида:
+жёсткий потолок, после которого кластер перестаёт принимать новые посты.
+
+Эмбеддинги L2-нормализованы (см. embedder); cosine_distance в pgvector сам
+нормализует по длине векторов, так что перенормировка центроида после EMA
+не требуется для корректности поиска.
 
 Архивация: кластеры с last_seen_at старше окна переводятся в archived, чтобы
 не загромождать кандидатов для новых постов.
@@ -58,10 +72,15 @@ class ClusteringBatchResult:
     archived_clusters: int
 
 
-def _running_mean(old_centroid: list[float], n_old: int, new_vec: list[float]) -> list[float]:
-    """Онлайн-пересчёт среднего: c' = (c * n + v) / (n + 1)."""
-    n_new = n_old + 1
-    return [(c * n_old + v) / n_new for c, v in zip(old_centroid, new_vec, strict=True)]
+def _ema_update(old_centroid: list[float], new_vec: list[float], *, alpha: float) -> list[float]:
+    """
+    Экспоненциальное скользящее среднее: c' = alpha*v + (1-alpha)*c.
+
+    В отличие от running mean по всей истории кластера, не "замерзает" при
+    большом posts_count — центроид всегда остаётся отражением недавнего
+    содержимого, а не усреднением по тысячам исторических постов.
+    """
+    return [(1.0 - alpha) * c + alpha * v for c, v in zip(old_centroid, new_vec, strict=True)]
 
 
 async def cluster_posts_batch(
@@ -118,13 +137,15 @@ async def cluster_posts_batch(
         if existing is not None:
             continue
 
-        # 2. Ищем ближайший подходящий кластер
+        # 2. Ищем ближайший подходящий кластер (кластеры на потолке размера
+        # исключаются из кандидатов — см. cluster_max_size)
         match = await find_nearest_active_cluster(
             db,
             embedding=vec,
             model_name=model_name,
             window_days=settings.cluster_window_days,
             similarity_threshold=settings.cluster_similarity_threshold,
+            max_cluster_size=settings.cluster_max_size,
             now=now,
         )
 
@@ -154,8 +175,8 @@ async def cluster_posts_batch(
         else:
             # 4. Расширяем существующий
             cluster, similarity = match
-            new_centroid = _running_mean(
-                list(cluster.centroid), int(cluster.posts_count or 0), vec
+            new_centroid = _ema_update(
+                list(cluster.centroid), vec, alpha=settings.cluster_centroid_ema_alpha
             )
             await upsert_assignment(
                 db,

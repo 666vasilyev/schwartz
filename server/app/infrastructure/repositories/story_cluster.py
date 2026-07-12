@@ -59,11 +59,16 @@ async def find_nearest_active_cluster(
     model_name: str,
     window_days: int,
     similarity_threshold: float,
+    max_cluster_size: int | None = None,
     now: datetime | None = None,
 ) -> tuple[StoryCluster, float] | None:
     """
     Найти ближайший по cosine активный кластер для эмбеддинга в скользящем окне.
     Возвращает (cluster, similarity) если similarity >= threshold, иначе None.
+
+    max_cluster_size — если задан, кластеры с posts_count >= max_cluster_size
+    исключаются из кандидатов (страховка от неограниченно растущих "хабов",
+    см. docstring модуля clusterer.py).
 
     pgvector: <=> — cosine distance (0..2). similarity = 1 - distance.
     """
@@ -76,9 +81,10 @@ async def find_nearest_active_cluster(
         .where(StoryCluster.status == StoryClusterStatus.ACTIVE.value)
         .where(StoryCluster.model_name == model_name)
         .where(StoryCluster.last_seen_at >= window_start)
-        .order_by(distance.asc())
-        .limit(1)
     )
+    if max_cluster_size is not None:
+        stmt = stmt.where(StoryCluster.posts_count < max_cluster_size)
+    stmt = stmt.order_by(distance.asc()).limit(1)
     row = (await db.execute(stmt)).first()
     if row is None:
         return None
