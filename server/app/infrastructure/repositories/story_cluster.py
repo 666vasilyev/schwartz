@@ -411,6 +411,44 @@ async def list_trending_by_categories(
     return [(c, int(pw), int(sw)) for c, pw, sw in res.all()]
 
 
+async def list_first_sources(
+    db: AsyncSession, cluster_ids: list[int]
+) -> dict[int, tuple[int | None, str | None, datetime | None]]:
+    """
+    Первоисточник сюжета: для каждого cluster_id — источник и дата публикации
+    самого раннего (по published_at) поста в кластере. Считается по ВСЕМ постам
+    кластера, а не только по попавшим в окно trending-выборки.
+
+    Возвращает {cluster_id: (source_id, source_name, published_at)}.
+    """
+    if not cluster_ids:
+        return {}
+
+    stmt = (
+        select(
+            PostClusterAssignment.cluster_id,
+            Post.source_id,
+            Source.name,
+            Post.published_at,
+        )
+        .select_from(PostClusterAssignment)
+        .join(Post, Post.id == PostClusterAssignment.post_id)
+        .outerjoin(Source, Source.id == Post.source_id)
+        .where(PostClusterAssignment.cluster_id.in_(cluster_ids))
+        .distinct(PostClusterAssignment.cluster_id)
+        .order_by(
+            PostClusterAssignment.cluster_id,
+            Post.published_at.asc().nulls_last(),
+            Post.id.asc(),
+        )
+    )
+    res = await db.execute(stmt)
+    return {
+        int(cluster_id): (source_id, source_name, published_at)
+        for cluster_id, source_id, source_name, published_at in res.all()
+    }
+
+
 # ── Тексты постов кластера (для генерации title/summary) ──────────────────
 
 

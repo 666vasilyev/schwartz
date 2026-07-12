@@ -42,10 +42,22 @@ class ClusterDetailResponse(BaseModel):
     posts_limit: int = Field(ge=1, le=200)
 
 
+class ClusterFirstSource(BaseModel):
+    """Первоисточник сюжета: кто и когда впервые опубликовал (по всем постам кластера)."""
+
+    source_id: int | None = None
+    source_name: str | None = None
+    first_published_at: datetime | None = None
+
+
 class TrendingClusterItem(BaseModel):
     cluster: ClusterRead
     posts_in_window: int
     sources_in_window: int
+    first_source: ClusterFirstSource | None = Field(
+        default=None,
+        description="Источник и дата самого раннего поста кластера (первоисточник сюжета)",
+    )
 
 
 class TrendingClustersResponse(BaseModel):

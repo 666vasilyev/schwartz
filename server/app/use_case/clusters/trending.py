@@ -3,13 +3,9 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.services.content.cluster_labeler import label_missing_in_rows
 from app.infrastructure.repositories import list_trending
-from app.presentation.schemas.cluster import (
-    ClusterRead,
-    TrendingClusterItem,
-    TrendingClustersResponse,
-)
+from app.presentation.schemas.cluster import TrendingClustersResponse
+from app.use_case.clusters._trending_common import build_trending_items
 
 
 async def execute(
@@ -25,17 +21,7 @@ async def execute(
         min_posts=min_posts,
         limit=limit,
     )
-    # Lazy-доразметка: кластеры без title/summary/topics размечаются через LLM
-    # прямо здесь, конкурентно, перед отдачей ответа.
-    await label_missing_in_rows(db, rows)
-    items = [
-        TrendingClusterItem(
-            cluster=ClusterRead.model_validate(cluster),
-            posts_in_window=posts_w,
-            sources_in_window=sources_w,
-        )
-        for cluster, posts_w, sources_w in rows
-    ]
+    items = await build_trending_items(db, rows)
     return TrendingClustersResponse(
         items=items,
         window_hours=window_hours,
