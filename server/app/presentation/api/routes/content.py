@@ -14,6 +14,7 @@ from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_session
 from app.infrastructure.clients.llm import ask_llm
 from app.presentation.schemas.analysis import (
+    CategoriesLemmaCkmResponse,
     CategoriesSchwartzTimeseriesResponse,
     CategoryLemmaByDayResponse,
     CategoryLangItem,
@@ -40,6 +41,7 @@ from app.use_case.analyze import get_stored as analyze_get_stored
 from app.use_case.analyze import lemma as analyze_lemma
 from app.use_case.analyze import lemma_categories as analyze_lemma_categories
 from app.use_case.analyze import lemma_categories_by_day as analyze_lemma_categories_by_day
+from app.use_case.analyze import lemma_categories_combined as analyze_lemma_categories_combined
 from app.use_case.analyze import lemma_category as analyze_lemma_category
 from app.use_case.analyze import lemma_category_by_day as analyze_lemma_category_by_day
 from app.use_case.analyze import lemma_source as analyze_lemma_source
@@ -126,6 +128,46 @@ async def analyze_categories_lemma(
     categories = [(item.category_name, item.lang) for item in body.categories]
     return await analyze_lemma_categories.execute(
         db, categories, limit=limit, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get(
+    "/lemma/categories/combined",
+    response_model=CategoriesLemmaCkmResponse,
+    summary="ЦКМ по объединённому пулу постов нескольких категорий (один результат) с леммами по каждому параметру",
+)
+async def analyze_categories_lemma_combined(
+    category_names: list[str] = Query(
+        ...,
+        description=(
+            "Одна или несколько категорий (?category_names=tech&category_names=politics — "
+            "union, источники, входящие сразу в несколько категорий, не дублируются)"
+        ),
+    ),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
+    top_n_lemmas: int = Query(
+        15, ge=1, le=100, description="Сколько лемм максимум показывать на параметр (по убыванию частоты)"
+    ),
+    limit: int | None = Query(
+        None, ge=1, description="Максимум постов на весь объединённый пул (по дате публикации, не per-category)"
+    ),
+    date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
+    date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
+    db: AsyncSession = Depends(get_session),
+) -> CategoriesLemmaCkmResponse:
+    if not category_names:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Нужна хотя бы одна category_name",
+        )
+    return await analyze_lemma_categories_combined.execute(
+        db,
+        category_names,
+        lang=lang,
+        top_n_lemmas=top_n_lemmas,
+        limit=limit,
+        date_from=date_from,
+        date_to=date_to,
     )
 
 

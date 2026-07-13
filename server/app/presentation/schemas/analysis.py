@@ -154,6 +154,39 @@ class SourceLemmaAnalysisResponse(BaseModel):
     )
 
 
+class LemmaDimensionScore(BaseModel):
+    """Один параметр ЦКМ: агрегированный score + леммы, которые дали ему вес."""
+
+    score: float = Field(
+        ..., description="Нормированное значение параметра (сумма всех 10 параметров = 1.0)"
+    )
+    lemmas: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Леммы/словосочетания с ненулевым весом по этому параметру хотя бы "
+            "в одном посте выборки, отсортированы по числу постов, где сработали "
+            "(по убыванию), ограничено top_n_lemmas"
+        ),
+    )
+
+
+class CategoriesLemmaCkmResponse(BaseModel):
+    """
+    ЦКМ по ОБЪЕДИНЁННОМУ (union, с дедупликацией постов) пулу постов списка
+    категорий — словарный метод, один комбинированный результат с разбивкой
+    по леммам на каждый из 10 параметров.
+    """
+
+    category_names: list[str]
+    lang: LemmaLang
+    posts_total: int = Field(description="Всего постов в объединённом пуле (после дедупликации)")
+    posts_analyzed: int = Field(description="Постов с непустым текстом, прошедших анализ")
+    posts_skipped_empty: int = 0
+    values: dict[str, LemmaDimensionScore] = Field(
+        description="Ключ — имя параметра ЦКМ (см. CSV_COLUMNS в lemma_scorer.py)",
+    )
+
+
 class CategoryLemmaDayItem(BaseModel):
     """ЦКМ категории по словарному методу за один период (день / неделя / месяц)."""
 

@@ -76,6 +76,9 @@ def _clean_lemma(raw: str) -> str:
 
 
 LemmaScoreResult = tuple[dict[str, float], list[str], dict[str, float]]
+# (totals, dimension_lemmas, cat_freq) — как LemmaScoreResult, но matched заменён
+# на разбивку "какие леммы дали вес каждому из 10 параметров ЦКМ".
+LemmaScoreResultExplained = tuple[dict[str, float], dict[str, list[str]], dict[str, float]]
 
 # Internal index type: (single_dict, phrase_dict, phrase_pattern, categories_dict)
 _Index = tuple[dict, dict, object, dict]
@@ -227,9 +230,24 @@ def list_lemmas(
     return rows, total
 
 
-def score_text(text: str, lang: LemmaLang = LemmaLang.ru) -> LemmaScoreResult:
+def _score_text_full(
+    text: str, lang: LemmaLang
+) -> tuple[dict[str, float], dict[str, list[str]], list[str], dict[str, float]]:
+    """
+    Общее ядро скоринга текста: одна леммизация/матчинг на весь модуль, из которой
+    строятся оба публичных варианта (score_text / score_text_explained), чтобы не
+    дублировать regex-матчинг и не давать им разойтись со временем.
+
+    Возвращает (totals, dimension_lemmas, matched, cat_freq):
+      - totals — нормированные (сумма=1.0) 10 значений ЦКМ;
+      - dimension_lemmas[параметр] — леммы с ненулевым весом ИМЕННО по этому
+        параметру в данном тексте (не нормировано, для explainability);
+      - matched — плоский список всех совпавших лемм (как раньше в score_text);
+      - cat_freq — нормированная частота категорий слов CSV.
+    """
     zero = {k: 0.0 for k in CSV_COLUMNS}
-    empty: LemmaScoreResult = (zero, [], {})
+    empty_dim: dict[str, list[str]] = {k: [] for k in CSV_COLUMNS}
+    empty = (zero, empty_dim, [], {})
     if not text or not text.strip():
         return empty
     single_dict, phrase_dict, phrase_pattern, categories_dict = _load_index(lang)
@@ -237,13 +255,17 @@ def score_text(text: str, lang: LemmaLang = LemmaLang.ru) -> LemmaScoreResult:
         return empty
     text_lower = text.lower()
     totals: dict[str, float] = {k: 0.0 for k in CSV_COLUMNS}
+    dimension_lemmas: dict[str, list[str]] = {k: [] for k in CSV_COLUMNS}
     matched: list[str] = []
     cat_counts: dict[str, int] = {}
 
     def _add(lemma: str, weights: dict[str, float]) -> None:
         matched.append(lemma)
         for col in CSV_COLUMNS:
-            totals[col] += weights.get(col, 0.0)
+            w = weights.get(col, 0.0)
+            totals[col] += w
+            if w > 0:
+                dimension_lemmas[col].append(lemma)
         for cat in categories_dict.get(lemma, []):
             cat_counts[cat] = cat_counts.get(cat, 0) + 1
 
@@ -276,7 +298,23 @@ def score_text(text: str, lang: LemmaLang = LemmaLang.ru) -> LemmaScoreResult:
     if ct > 0:
         cat_freq = {k: round(v / ct, 4) for k, v in sorted(cat_counts.items(), key=lambda x: -x[1])}
 
+    return totals, dimension_lemmas, matched, cat_freq
+
+
+def score_text(text: str, lang: LemmaLang = LemmaLang.ru) -> LemmaScoreResult:
+    totals, _dimension_lemmas, matched, cat_freq = _score_text_full(text, lang)
     return totals, matched, cat_freq
+
+
+def score_text_explained(text: str, lang: LemmaLang = LemmaLang.ru) -> LemmaScoreResultExplained:
+    """
+    Как score_text, но вместо плоского списка совпавших лемм возвращает разбивку
+    по параметрам ЦКМ: dimension_lemmas[параметр] = леммы, давшие ему вес > 0 в
+    этом тексте. Используется там, где нужна объяснимость (например, комбинированная
+    ЦКМ по нескольким категориям — см. use_case/analyze/lemma_categories_combined.py).
+    """
+    totals, dimension_lemmas, _matched, cat_freq = _score_text_full(text, lang)
+    return totals, dimension_lemmas, cat_freq
 
 
 _BASELINE_DIRS: tuple[Path, ...] = (
@@ -306,6 +344,17 @@ def read_baseline(lang: LemmaLang) -> dict | None:
 async def score_texts_batch(texts: list[str], lang: LemmaLang = LemmaLang.ru) -> list[LemmaScoreResult]:
     loop = asyncio.get_running_loop()
     return list(await asyncio.gather(*[loop.run_in_executor(None, score_text, text, lang) for text in texts]))
+
+
+async def score_texts_batch_explained(
+    texts: list[str], lang: LemmaLang = LemmaLang.ru
+) -> list[LemmaScoreResultExplained]:
+    loop = asyncio.get_running_loop()
+    return list(
+        await asyncio.gather(
+            *[loop.run_in_executor(None, score_text_explained, text, lang) for text in texts]
+        )
+    )
 
 
 # ── Дозапись новых лемм в CSV ────────────────────────────────────────────────
