@@ -324,99 +324,34 @@ async def count_clusters(
     return int(res.scalar_one() or 0)
 
 
-async def list_trending(
+async def list_trending_combined(
     db: AsyncSession,
     *,
+    source_ids: list[int] | None = None,
+    category_names: list[str] | None = None,
     window_hours: int = 24,
     min_posts: int = 3,
     limit: int = 20,
     now: datetime | None = None,
 ) -> list[tuple[StoryCluster, int, int]]:
     """
-    Тренды: активные кластеры, в которые за окно [now-window_hours; now]
-    залетело >= min_posts постов. Возвращает (cluster, posts_in_window,
-    distinct_sources_in_window).
-    """
-    now = now or _utcnow()
-    window_start = now - timedelta(hours=window_hours)
+    Единая точка входа для всех trending-выборок (общие тренды / по источникам /
+    по категориям / по пересечению обоих).
 
-    posts_in_window = func.count(PostClusterAssignment.post_id).label("posts_in_window")
-    sources_in_window = func.count(func.distinct(Post.source_id)).label(
-        "sources_in_window"
-    )
-    stmt = (
-        select(StoryCluster, posts_in_window, sources_in_window)
-        .join(
-            PostClusterAssignment,
-            PostClusterAssignment.cluster_id == StoryCluster.id,
-        )
-        .join(Post, Post.id == PostClusterAssignment.post_id)
-        .where(StoryCluster.status == StoryClusterStatus.ACTIVE.value)
-        .where(PostClusterAssignment.assigned_at >= window_start)
-        .group_by(StoryCluster.id)
-        .having(func.count(PostClusterAssignment.post_id) >= min_posts)
-        .order_by(posts_in_window.desc(), sources_in_window.desc())
-        .limit(limit)
-    )
-    res = await db.execute(stmt)
-    return [(c, int(pw), int(sw)) for c, pw, sw in res.all()]
+    source_ids и category_names — независимые множества-фильтры, которые
+    объединяются между собой через AND, а элементы ВНУТРИ каждого множества —
+    через OR (union):
+      - пустые оба → фильтров нет, общие тренды по всем источникам;
+      - задан только source_ids → тренды по объединённому пулу постов этих
+        источников (как раньше в /trending/by-source);
+      - задан только category_names → тренды по объединённому пулу постов
+        источников этих категорий (как раньше в /trending/by-category);
+      - заданы оба → тренды по постам источников, которые ОДНОВРЕМЕННО входят
+        в source_ids И относятся хотя бы к одной из category_names.
 
-
-async def list_trending_by_sources(
-    db: AsyncSession,
-    *,
-    source_ids: list[int],
-    window_hours: int = 24,
-    min_posts: int = 3,
-    limit: int = 20,
-    now: datetime | None = None,
-) -> list[tuple[StoryCluster, int, int]]:
-    """
-    Тренды в рамках заданных источников (union): считаются только посты, чей
-    source_id входит в source_ids. posts_in_window/sources_in_window — по этому
-    отфильтрованному пулу постов, а не глобально.
-    """
-    now = now or _utcnow()
-    window_start = now - timedelta(hours=window_hours)
-
-    posts_in_window = func.count(PostClusterAssignment.post_id).label("posts_in_window")
-    sources_in_window = func.count(func.distinct(Post.source_id)).label(
-        "sources_in_window"
-    )
-    stmt = (
-        select(StoryCluster, posts_in_window, sources_in_window)
-        .join(
-            PostClusterAssignment,
-            PostClusterAssignment.cluster_id == StoryCluster.id,
-        )
-        .join(Post, Post.id == PostClusterAssignment.post_id)
-        .where(StoryCluster.status == StoryClusterStatus.ACTIVE.value)
-        .where(PostClusterAssignment.assigned_at >= window_start)
-        .where(Post.source_id.in_(source_ids))
-        .group_by(StoryCluster.id)
-        .having(func.count(PostClusterAssignment.post_id) >= min_posts)
-        .order_by(posts_in_window.desc(), sources_in_window.desc())
-        .limit(limit)
-    )
-    res = await db.execute(stmt)
-    return [(c, int(pw), int(sw)) for c, pw, sw in res.all()]
-
-
-async def list_trending_by_categories(
-    db: AsyncSession,
-    *,
-    category_names: list[str],
-    window_hours: int = 24,
-    min_posts: int = 3,
-    limit: int = 20,
-    now: datetime | None = None,
-) -> list[tuple[StoryCluster, int, int]]:
-    """
-    Тренды в рамках заданных категорий источников (union): пост учитывается,
-    если его источник состоит хотя бы в одной из category_names. Один источник,
-    входящий сразу в несколько запрошенных категорий, не даёт задвоения —
-    posts_in_window считается через distinct по post_id (join с
-    source_category_link может размножить строки).
+    posts_in_window/sources_in_window считаются через distinct — join с
+    source_category_link может размножить строки, если источник состоит сразу
+    в нескольких запрошенных категориях.
     """
     now = now or _utcnow()
     window_start = now - timedelta(hours=window_hours)
@@ -434,11 +369,21 @@ async def list_trending_by_categories(
             PostClusterAssignment.cluster_id == StoryCluster.id,
         )
         .join(Post, Post.id == PostClusterAssignment.post_id)
-        .join(source_category_link, source_category_link.c.source_id == Post.source_id)
         .where(StoryCluster.status == StoryClusterStatus.ACTIVE.value)
         .where(PostClusterAssignment.assigned_at >= window_start)
-        .where(source_category_link.c.category_name.in_(category_names))
-        .group_by(StoryCluster.id)
+    )
+
+    if category_names:
+        stmt = stmt.join(
+            source_category_link,
+            source_category_link.c.source_id == Post.source_id,
+        ).where(source_category_link.c.category_name.in_(category_names))
+
+    if source_ids:
+        stmt = stmt.where(Post.source_id.in_(source_ids))
+
+    stmt = (
+        stmt.group_by(StoryCluster.id)
         .having(func.count(func.distinct(PostClusterAssignment.post_id)) >= min_posts)
         .order_by(posts_in_window.desc(), sources_in_window.desc())
         .limit(limit)

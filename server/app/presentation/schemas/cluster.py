@@ -61,27 +61,18 @@ class TrendingClusterItem(BaseModel):
 
 
 class TrendingClustersResponse(BaseModel):
-    items: list[TrendingClusterItem]
-    window_hours: int
-    min_posts: int
-
-
-class SourceTrendingClustersResponse(BaseModel):
-    """Тренды в рамках заданных источников (один или несколько, union)."""
-
-    items: list[TrendingClusterItem]
-    window_hours: int
-    min_posts: int
-    source_ids: list[int]
-
-
-class CategoryTrendingClustersResponse(BaseModel):
-    """Тренды в рамках заданных категорий источников (одна или несколько, union)."""
+    """
+    Единый ответ трендов. source_ids/category_names эхом отдают, какие фильтры
+    были применены (пустой список — фильтр не задавался): пустые оба — общие
+    тренды по всем источникам; задан один — тренд по этому множеству (union
+    внутри него); заданы оба — пересечение (AND) множеств.
+    """
 
     items: list[TrendingClusterItem]
     window_hours: int
     min_posts: int
-    category_names: list[str]
+    source_ids: list[int] = Field(default_factory=list)
+    category_names: list[str] = Field(default_factory=list)
 
 
 class ClusterRunResponse(BaseModel):
