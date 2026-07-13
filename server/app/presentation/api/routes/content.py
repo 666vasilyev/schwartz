@@ -131,39 +131,34 @@ async def analyze_categories_lemma(
     )
 
 
-@router.get(
+@router.post(
     "/lemma/categories/combined",
     response_model=CategoriesLemmaCkmResponse,
-    summary="ЦКМ по объединённому пулу постов нескольких категорий (один результат) с леммами по каждому параметру",
+    summary="ЦКМ по объединённому результату нескольких категорий (один результат) с леммами по каждому параметру",
 )
 async def analyze_categories_lemma_combined(
-    category_names: list[str] = Query(
-        ...,
-        description=(
-            "Одна или несколько категорий (?category_names=tech&category_names=politics — "
-            "union, источники, входящие сразу в несколько категорий, не дублируются)"
-        ),
-    ),
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg"),
+    body: LemmaCategoriesRequest,
     top_n_lemmas: int = Query(
         15, ge=1, le=100, description="Сколько лемм максимум показывать на параметр (по убыванию частоты)"
     ),
     limit: int | None = Query(
-        None, ge=1, description="Максимум постов на весь объединённый пул (по дате публикации, не per-category)"
+        None, ge=1, description="Последние N постов НА КАЖДУЮ категорию (по дате публикации)"
     ),
     date_from: datetime | None = Query(None, description="Начало диапазона (published_at >=)"),
     date_to: datetime | None = Query(None, description="Конец диапазона (published_at <=)"),
     db: AsyncSession = Depends(get_session),
 ) -> CategoriesLemmaCkmResponse:
-    if not category_names:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Нужна хотя бы одна category_name",
-        )
+    """
+    Тело — как у /lemma/categories: список пар {category_name, lang}, у каждой
+    категории свой язык словаря. В отличие от /lemma/categories (список
+    результатов, по одному на категорию) здесь один комбинированный результат:
+    все посты всех категорий (каждая — своим словарём) объединяются в единый
+    агрегат с разбивкой по леммам на параметр.
+    """
+    categories = [(item.category_name, item.lang) for item in body.categories]
     return await analyze_lemma_categories_combined.execute(
         db,
-        category_names,
-        lang=lang,
+        categories,
         top_n_lemmas=top_n_lemmas,
         limit=limit,
         date_from=date_from,
