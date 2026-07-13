@@ -1,7 +1,7 @@
 """Схемы API для сюжетных кластеров."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -66,6 +66,11 @@ class TrendingClustersResponse(BaseModel):
     были применены (пустой список — фильтр не задавался): пустые оба — общие
     тренды по всем источникам; задан один — тренд по этому множеству (union
     внутри него); заданы оба — пересечение (AND) множеств.
+
+    as_of — если не null, ответ ретроспективный: тренды посчитаны по дате
+    публикации постов (а не по моменту их обработки), без фильтра по
+    активности кластера. window_hours в этом случае — ширина окна ретроспективы
+    в часах (as_of + window_days), а не окно "от текущего момента назад".
     """
 
     items: list[TrendingClusterItem]
@@ -73,6 +78,10 @@ class TrendingClustersResponse(BaseModel):
     min_posts: int
     source_ids: list[int] = Field(default_factory=list)
     category_names: list[str] = Field(default_factory=list)
+    as_of: date | None = Field(
+        default=None,
+        description="Ретроспективная дата, если запрос был историческим",
+    )
 
 
 class ClusterRunResponse(BaseModel):

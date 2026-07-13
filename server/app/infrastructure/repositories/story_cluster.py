@@ -333,10 +333,12 @@ async def list_trending_combined(
     min_posts: int = 3,
     limit: int = 20,
     now: datetime | None = None,
+    use_published_at: bool = False,
+    require_active: bool = True,
 ) -> list[tuple[StoryCluster, int, int]]:
     """
     Единая точка входа для всех trending-выборок (общие тренды / по источникам /
-    по категориям / по пересечению обоих).
+    по категориям / по пересечению обоих / ретроспектива на дату в прошлом).
 
     source_ids и category_names — независимые множества-фильтры, которые
     объединяются между собой через AND, а элементы ВНУТРИ каждого множества —
@@ -348,6 +350,23 @@ async def list_trending_combined(
         источников этих категорий (как раньше в /trending/by-category);
       - заданы оба → тренды по постам источников, которые ОДНОВРЕМЕННО входят
         в source_ids И относятся хотя бы к одной из category_names.
+
+    use_published_at / require_active — переключатель live vs ретроспектива:
+      - live (по умолчанию): окно считается по PostClusterAssignment.assigned_at
+        (момент, когда наш пайплайн обработал пост) и учитываются только
+        status == active кластеры — это подходящее приближение, когда посты
+        обрабатываются вскоре после публикации.
+      - ретроспектива (use_published_at=True, require_active=False): окно
+        считается по Post.published_at (реальная дата публикации), а фильтр по
+        статусу снят — иначе после rebuild'а или просто со временем почти все
+        кластеры интересующего периода уже archived и результат будет пустым.
+        Важная оговорка: кластеры — стейтфул объекты (центроид дрейфует,
+        возможен сплит по cluster_max_size), поэтому ретроспектива показывает
+        посты даты X, сгруппированные по ИХ ТЕКУЩЕЙ принадлежности к кластеру,
+        а не точную картину, которая была бы видна при live-запросе в тот день.
+
+    Оба режима используют один и тот же now/window_hours: для ретроспективы
+    now — конец нужного периода, window_hours — его ширина в часах.
 
     posts_in_window/sources_in_window считаются через distinct — join с
     source_category_link может размножить строки, если источник состоит сразу
@@ -362,6 +381,8 @@ async def list_trending_combined(
     sources_in_window = func.count(func.distinct(Post.source_id)).label(
         "sources_in_window"
     )
+    time_column = Post.published_at if use_published_at else PostClusterAssignment.assigned_at
+
     stmt = (
         select(StoryCluster, posts_in_window, sources_in_window)
         .join(
@@ -369,9 +390,12 @@ async def list_trending_combined(
             PostClusterAssignment.cluster_id == StoryCluster.id,
         )
         .join(Post, Post.id == PostClusterAssignment.post_id)
-        .where(StoryCluster.status == StoryClusterStatus.ACTIVE.value)
-        .where(PostClusterAssignment.assigned_at >= window_start)
+        .where(time_column >= window_start)
+        .where(time_column <= now)
     )
+
+    if require_active:
+        stmt = stmt.where(StoryCluster.status == StoryClusterStatus.ACTIVE.value)
 
     if category_names:
         stmt = stmt.join(

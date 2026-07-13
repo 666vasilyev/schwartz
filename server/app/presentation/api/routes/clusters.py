@@ -3,9 +3,10 @@ Clusters API — /api/v1/clusters
 
 Эндпоинты:
   GET    /api/v1/clusters                 — список сюжетов с фильтрами
-  GET    /api/v1/clusters/trending        — трендовые сюжеты за окно (опционально
-                                             отфильтрованные по source_ids и/или
-                                             category_names)
+  GET    /api/v1/clusters/trending        — трендовые сюжеты: live (по умолчанию)
+                                             или ретроспектива на дату (as_of),
+                                             опционально по source_ids и/или
+                                             category_names
   GET    /api/v1/clusters/{id}            — карточка сюжета + посты
   POST   /api/v1/clusters/run             — один тик инкрементальной кластеризации
   POST   /api/v1/clusters/rebuild         — полная перестройка (медленно)
@@ -13,7 +14,7 @@ Clusters API — /api/v1/clusters
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,17 +98,39 @@ async def trending_endpoint(
         ),
     ),
     window_hours: int = Query(
-        24, ge=1, le=168, description="Окно в часах (макс 7 дней)"
+        24,
+        ge=1,
+        le=168,
+        description="Live-режим (as_of не задан): окно в часах назад от текущего момента (макс 7 дней)",
     ),
     min_posts: int = Query(3, ge=1, description="Минимум постов в окне"),
     limit: int = Query(20, ge=1, le=200),
+    as_of: date | None = Query(
+        None,
+        description=(
+            "Ретроспектива: тренды за window_days суток начиная с этой даты "
+            "(UTC), посчитанные по дате публикации постов. Если задано — "
+            "window_hours игнорируется, используется window_days."
+        ),
+    ),
+    window_days: int = Query(
+        1,
+        ge=1,
+        le=90,
+        description="Ширина окна ретроспективы в сутках от as_of (используется только вместе с as_of)",
+    ),
     db: AsyncSession = Depends(get_session),
 ) -> TrendingClustersResponse:
     """
-    Без параметров — общие тренды по всем источникам. С source_ids и/или
-    category_names — тренды в рамках этих множеств; если заданы оба —
-    пересечение (AND): источник должен одновременно входить в source_ids
-    И относиться хотя бы к одной из category_names.
+    Live-режим (as_of не задан) — без параметров общие тренды по всем
+    источникам за последние window_hours; с source_ids и/или category_names —
+    в рамках этих множеств (пересечение AND, если заданы оба).
+
+    Ретроспектива (as_of задан) — то же самое, но окно [as_of; as_of+window_days)
+    считается по дате публикации постов, без фильтра "кластер сейчас активен".
+    Кластеры — стейтфул объекты, поэтому это посты даты X, сгруппированные по
+    ИХ ТЕКУЩЕЙ принадлежности к кластеру, а не точная картина live-запроса
+    в тот день (см. list_trending_combined).
     """
     return await trending_uc.execute(
         db,
@@ -116,6 +139,8 @@ async def trending_endpoint(
         window_hours=window_hours,
         min_posts=min_posts,
         limit=limit,
+        as_of=as_of,
+        window_days=window_days,
     )
 
 
