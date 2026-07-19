@@ -165,10 +165,9 @@ class LemmaTrendWeekRange(BaseModel):
 class LemmaTrendCandidateItem(BaseModel):
     """
     "Эмпирическая" лемма — устойчиво частая в трендовых постах за несколько
-    недель. weights/category заполняются LLM для первых `limit_candidates`
-    кандидатов (см. LemmaTrendCandidatesResponse); для остальных — пусто
-    (weights_assigned=False), их вес можно проставить вручную либо перезапросить
-    отдельно, увеличив limit_candidates.
+    недель. Только частотные метрики — веса и категория здесь НЕ считаются
+    (lazy-load): чтобы получить их для конкретной леммы из этого списка,
+    вызовите GET /lemma/trend-candidates/{lemma}/weights отдельно.
     """
 
     lemma: str
@@ -181,33 +180,22 @@ class LemmaTrendCandidateItem(BaseModel):
     in_dictionary: bool = Field(
         description="Уже есть такая лемма в словаре lang (True) или это потенциально новая лемма (False)"
     )
-    weights: dict[str, float] = Field(
-        default_factory=dict,
-        description="Веса по 10 направлениям ЦКМ, предложенные LLM (см. weights_assigned)",
-    )
-    category: str = Field("", description="Категория, предложенная LLM (см. weights_assigned)")
-    weights_assigned: bool = Field(
-        False, description="Запрашивались ли для этой леммы веса у LLM (ограничено limit_candidates)"
-    )
 
 
 class LemmaTrendCandidatesResponse(BaseModel):
     """
-    Предпросмотр "эмпирических" лемм по частоте в трендовых постах: лемма,
-    попавшая в топ частых слов минимум в min_weeks_match из проверенных недель,
-    плюс веса/категория, предложенные LLM (аналог /lemma/extract, но лемму не
-    придумывает LLM — она уже определена частотным методом). Ничего не
-    сохраняет; результат (weights+category) можно передать в /lemma/append как
-    есть после ручной проверки.
+    Список "эмпирических" лемм по частоте в трендовых постах: лемма, попавшая
+    в топ частых слов минимум в min_weeks_match из проверенных недель. Только
+    частотный подсчёт (без LLM) — быстро, без риска упереться в таймаут. Веса
+    и категорию для конкретной леммы из этого списка запрашивайте отдельно
+    через GET /lemma/trend-candidates/{lemma}/weights (lazy-load, по одной
+    лемме за вызов).
     """
 
     lang: LemmaLang
     weeks: int = Field(description="Сколько последних недель проверено")
     min_weeks_match: int = Field(description="Минимум недель, в которых лемма должна встретиться")
     top_n_per_week: int = Field(description="Сколько самых частых слов на неделю рассматривалось")
-    limit_candidates: int = Field(
-        description="Максимум кандидатов (по убыванию weeks_matched/total_occurrences), для которых запрошены веса у LLM"
-    )
     week_ranges: list[LemmaTrendWeekRange] = Field(default_factory=list)
     candidates: list[LemmaTrendCandidateItem] = Field(
         default_factory=list,

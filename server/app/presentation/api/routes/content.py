@@ -51,6 +51,7 @@ from app.use_case.analyze import lemma_category as analyze_lemma_category
 from app.use_case.analyze import lemma_category_by_day as analyze_lemma_category_by_day
 from app.use_case.analyze import lemma_source as analyze_lemma_source
 from app.use_case.analyze import lemma_trend_candidates as analyze_lemma_trend_candidates
+from app.use_case.analyze import lemma_trend_weight as analyze_lemma_trend_weight
 from app.use_case.analyze import post as analyze_post
 
 router = APIRouter(prefix="/analyze", tags=["Content Analysis"])
@@ -366,7 +367,7 @@ def lemma_blacklist_action(
 @router.get(
     "/lemma/trend-candidates",
     response_model=LemmaTrendCandidatesResponse,
-    summary="Эмпирические леммы: частые в трендах за неделю(и) 3/4, с весами ЦКМ от LLM",
+    summary="Эмпирические леммы: список частых в трендах за неделю(и) 3/4 (без LLM, только частоты)",
 )
 async def lemma_trend_candidates_endpoint(
     lang: LemmaLang = _LANG_QUERY,
@@ -381,17 +382,7 @@ async def lemma_trend_candidates_endpoint(
     top_n_per_week: int = Query(30, ge=1, le=200, description="Сколько самых частых слов на неделю рассматривать"),
     min_posts: int = Query(3, ge=1, description="Минимум постов в трендовом кластере недели"),
     trending_limit: int = Query(20, ge=1, le=200, description="Максимум трендовых кластеров на неделю"),
-    limit_candidates: int = Query(
-        8, ge=1, le=50,
-        description=(
-            "Максимум кандидатов (по убыванию weeks_matched/total_occurrences), для которых запросить "
-            "веса у LLM. Вызовы последовательные (1 лемма = 1 вызов LLM, до 300с каждый) — большие "
-            "значения рискуют упереться в proxy_read_timeout (120с для /analyze/* в nginx.conf)"
-        ),
-    ),
     end_date: date | None = Query(None, description="Конец периода (по умолчанию — сегодня, UTC)"),
-    provider: str | None = Query(None, description="Провайдер LLM для назначения весов. По умолчанию — активный."),
-    model: str | None = Query(None, description="Модель LLM для назначения весов. По умолчанию — активная."),
     db: AsyncSession = Depends(get_session),
 ) -> LemmaTrendCandidatesResponse:
     """
@@ -401,11 +392,9 @@ async def lemma_trend_candidates_endpoint(
     top_n_per_week самых частых слов минимум в min_weeks_match неделях. Леммы
     из чёрного списка (/lemma/blacklist) исключаются из подсчёта.
 
-    Для первых limit_candidates кандидатов (по убыванию weeks_matched, затем
-    total_occurrences) LLM подбирает веса по 10 направлениям ЦКМ и категорию
-    (по одному вызову на лемму — см. lemma_llm_extractor.py); остальные
-    возвращаются с weights_assigned=false. Предпросмотр — ничего не сохраняет;
-    результат (после ручной проверки) можно передать в /lemma/append как есть.
+    Только частотный список — без весов/категории и без обращения к LLM (lazy-load:
+    веса для конкретной леммы запрашиваются отдельно через
+    GET /lemma/trend-candidates/{lemma}/weights).
     """
     if min_weeks_match > weeks:
         raise HTTPException(
@@ -422,11 +411,29 @@ async def lemma_trend_candidates_endpoint(
         top_n_per_week=top_n_per_week,
         min_posts=min_posts,
         trending_limit=trending_limit,
-        limit_candidates=limit_candidates,
         end_date=end_date,
-        provider=provider,
-        model=model,
     )
+
+
+@router.get(
+    "/lemma/trend-candidates/{lemma}/weights",
+    response_model=NewLemmaItem,
+    summary="Веса ЦКМ и категория для одной леммы (lazy-load, обычно — из /lemma/trend-candidates)",
+)
+async def lemma_trend_candidate_weights(
+    lemma: str,
+    lang: LemmaLang = _LANG_QUERY,
+    provider: str | None = Query(None, description="Провайдер LLM. По умолчанию — активный."),
+    model: str | None = Query(None, description="Модель LLM. По умолчанию — активная."),
+) -> NewLemmaItem:
+    """
+    Один вызов LLM — веса по 10 направлениям ЦКМ и категория для конкретной
+    леммы (обычно взятой из ответа /lemma/trend-candidates, но подойдёт любое
+    слово/словосочетание). Так вместо N последовательных LLM-вызовов на весь
+    список сразу считаются только те леммы, что реально интересны. Результат
+    можно передать в /lemma/append как есть.
+    """
+    return await analyze_lemma_trend_weight.execute(lemma, lang, provider=provider, model=model)
 
 
 @router.post(
