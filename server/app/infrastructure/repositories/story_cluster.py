@@ -490,17 +490,25 @@ async def list_posts_in_clusters(
     """
     if not cluster_ids:
         return []
-    q = (
-        select(Post)
-        .join(PostClusterAssignment, PostClusterAssignment.post_id == Post.id)
+    # DISTINCT считается по id в подзапросе, а не select(Post).distinct() по всей
+    # сущности — Post.reactions/attachments/payload это json (не jsonb), а для
+    # json в Postgres нет operator class равенства, поэтому SELECT DISTINCT по
+    # всем колонкам Post падает с "could not identify an equality operator for
+    # type json". id — bigint, с ним DISTINCT работает всегда; полные строки
+    # затем выбираются отдельным запросом по уже дедуплицированным id.
+    id_subq = (
+        select(PostClusterAssignment.post_id)
+        .join(Post, Post.id == PostClusterAssignment.post_id)
         .where(PostClusterAssignment.cluster_id.in_(cluster_ids))
         .where(Post.text.isnot(None))
     )
     if date_from is not None:
-        q = q.where(Post.published_at >= date_from)
+        id_subq = id_subq.where(Post.published_at >= date_from)
     if date_to is not None:
-        q = q.where(Post.published_at <= date_to)
-    res = await db.execute(q.distinct())
+        id_subq = id_subq.where(Post.published_at <= date_to)
+    id_subq = id_subq.distinct()
+
+    res = await db.execute(select(Post).where(Post.id.in_(id_subq)))
     return list(res.scalars().all())
 
 
