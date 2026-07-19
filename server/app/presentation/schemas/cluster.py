@@ -58,6 +58,13 @@ class TrendingClusterItem(BaseModel):
         default=None,
         description="Источник и дата самого раннего поста кластера (первоисточник сюжета)",
     )
+    new_lemmas: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Самые частые леммы в текстах постов этого кластера за окно тренда "
+            "(простой набор, как topics) — леммы из чёрного списка исключены"
+        ),
+    )
 
 
 class TrendingClustersResponse(BaseModel):

@@ -61,13 +61,32 @@ _LEMMA_DIRS: tuple[Path, ...] = (
 )
 
 
-def _find_csv(lang: LemmaLang) -> Path:
-    filename = _CSV_FILENAMES[lang]
+def _find_in_lemma_dirs(filename: str, *, create: bool = False) -> Path:
+    """
+    Ищет `filename` по очереди в _LEMMA_DIRS (первое совпадение побеждает) —
+    общая логика для поиска CSV-словаря и файла чёрного списка (отличаются
+    только именем файла и тем, нужно ли создавать его при отсутствии).
+
+    create=True — если нигде не найден, создать пустой файл в первой
+    существующей директории из _LEMMA_DIRS (нужно файлам, которых может не
+    быть до первой записи, например ещё не созданный чёрный список).
+    """
     for d in _LEMMA_DIRS:
         p = d / filename
         if p.exists():
             return p
-    raise FileNotFoundError(f"{filename} not found")
+    if not create:
+        raise FileNotFoundError(f"{filename} not found")
+    for d in _LEMMA_DIRS:
+        if d.exists():
+            p = d / filename
+            p.write_text("", encoding="utf-8")
+            return p
+    raise FileNotFoundError(f"Не найдена ни одна из директорий словарей для создания {filename}")
+
+
+def _find_csv(lang: LemmaLang) -> Path:
+    return _find_in_lemma_dirs(_CSV_FILENAMES[lang])
 
 
 def _clean_lemma(raw: str) -> str:
@@ -371,14 +390,197 @@ def existing_lemmas(lang: LemmaLang) -> set[str]:
     return set(single_dict) | set(phrase_dict)
 
 
+def list_categories(lang: LemmaLang) -> list[str]:
+    """
+    Канонический список категорий словаря `lang`: все уникальные непустые теги
+    из последней колонки CSV (лемма с полем вида "договор / воля" даёт два
+    отдельных тега), без явного мусора ("nan" — артефакт выгрузки через
+    pandas/Excel, встречается как пустая ячейка). Отсортировано по алфавиту.
+
+    Используется, чтобы ограничить LLM выбором строго из уже существующих
+    категорий при генерации новых кандидатных лемм (см. lemma_llm_extractor.py) —
+    вместо того чтобы модель придумывала свои. Список не дедуплицирует опечатки
+    /похожие теги (например "воля"/"волю") — это данные словаря как они есть;
+    ручная чистка CSV не входит в эту задачу.
+    """
+    _single, _phrase, _pattern, categories_dict = _load_index(lang)
+    cats: set[str] = set()
+    for cat_list in categories_dict.values():
+        for c in cat_list:
+            c = c.strip()
+            if c and c.casefold() != "nan":
+                cats.add(c)
+    return sorted(cats)
+
+
+def count_lemmas_by_parameter(lang: LemmaLang) -> dict[str, int]:
+    """
+    Количество лемм словаря `lang` с ненулевым весом по каждому из 10
+    параметров ЦКМ (CSV_COLUMNS) — просто счётчик, без самих лемм/весов.
+    Одна лемма может учитываться сразу в нескольких параметрах, если у неё
+    ненулевой вес по нескольким колонкам.
+    """
+    single_dict, phrase_dict, _pattern, _categories_dict = _load_index(lang)
+    counts: dict[str, int] = {col: 0 for col in CSV_COLUMNS}
+    for weights in (*single_dict.values(), *phrase_dict.values()):
+        for col in CSV_COLUMNS:
+            if weights.get(col, 0.0) > 0:
+                counts[col] += 1
+    return counts
+
+
+_BLACKLIST_FILENAMES: dict[LemmaLang, str] = {
+    LemmaLang.ru: "blacklist_ru.csv",
+    LemmaLang.ru_un: "blacklist_ru_un.csv",
+    LemmaLang.usa: "blacklist_usa.csv",
+    LemmaLang.usa_un: "blacklist_usa_un.csv",
+    LemmaLang.frg: "blacklist_frg.csv",
+}
+
+
+def _find_blacklist_path(lang: LemmaLang, *, create: bool = False) -> Path:
+    """
+    Как _find_csv, но для файла чёрного списка лемм: список лежит в отдельном
+    файле per-lang (server/lemma/blacklist_{lang}.csv, одна лемма на строку),
+    т.к. для разных базовых языков словаря (ru/usa/frg) это разные слова.
+
+    create=True — если файл ещё нигде не найден, создать пустой в первой
+    существующей директории из _LEMMA_DIRS (для первого add_to_blacklist).
+    """
+    return _find_in_lemma_dirs(_BLACKLIST_FILENAMES[lang], create=create)
+
+
+@lru_cache(maxsize=None)
+def _load_blacklist_raw(lang: LemmaLang) -> frozenset[str]:
+    """Чистый (после _clean_lemma) набор лемм чёрного списка ОДНОГО базового lang (без merge)."""
+    try:
+        path = _find_blacklist_path(lang)
+    except FileNotFoundError:
+        return frozenset()
+    encoding = _detect_encoding(path)
+    with open(path, encoding=encoding, newline="") as fh:
+        lines = fh.read().splitlines()
+    return frozenset(_clean_lemma(line) for line in lines if line.strip())
+
+
+def list_blacklist(lang: LemmaLang) -> list[str]:
+    """
+    Чёрный список лемм для `lang`, отсортированный по алфавиту. Для merged-языков
+    (ru_merged/usa_merged) — объединение чёрных списков обеих компонент (сами
+    merged не имеют своего файла, как и в append_lemmas/_load_index).
+    """
+    if lang in _MERGED_COMPONENTS:
+        lang_a, lang_b = _MERGED_COMPONENTS[lang]
+        combined = _load_blacklist_raw(lang_a) | _load_blacklist_raw(lang_b)
+        return sorted(combined)
+    return sorted(_load_blacklist_raw(lang))
+
+
+def is_blacklisted(lemma: str, lang: LemmaLang) -> bool:
+    """Есть ли лемма (после нормализации) в чёрном списке `lang`."""
+    key = _clean_lemma(lemma)
+    if not key:
+        return False
+    if lang in _MERGED_COMPONENTS:
+        lang_a, lang_b = _MERGED_COMPONENTS[lang]
+        return key in _load_blacklist_raw(lang_a) or key in _load_blacklist_raw(lang_b)
+    return key in _load_blacklist_raw(lang)
+
+
+def _append_lines(path: Path, encoding: str, lines: list[str]) -> None:
+    """
+    Дописать `lines` (по одной на строку) в конец `path`, гарантируя перевод
+    строки перед новым контентом, если файл уже не пуст и не оканчивается на
+    \n/\r — иначе первая новая строка слиплась бы с последней старой. Общая
+    логика для add_to_blacklist и append_lemmas (append-ветка).
+    """
+    with open(path, "rb") as fh:
+        fh.seek(0, 2)
+        has_content = fh.tell() > 0
+        needs_leading_newline = False
+        if has_content:
+            fh.seek(-1, 2)
+            needs_leading_newline = fh.read(1) not in (b"\n", b"\r")
+
+    with open(path, "a", encoding=encoding, newline="") as fh:
+        if needs_leading_newline:
+            fh.write("\n")
+        fh.write("\n".join(lines) + "\n")
+
+
+def add_to_blacklist(lang: LemmaLang, lemmas: list[str]) -> tuple[int, list[str]]:
+    """
+    Добавить леммы в чёрный список `lang` (append, без дублей).
+    Возвращает (сколько добавлено, какие уже были в списке — эхом как передали).
+    """
+    if lang in _MERGED_COMPONENTS:
+        raise MergedLangNotWritableError(
+            f"'{lang.value}' — вычисляемый merged-словарь, свой чёрный список недоступен для записи"
+        )
+    existing = _load_blacklist_raw(lang)
+    keys_seen: set[str] = set(existing)
+    already: list[str] = []
+    new_keys: list[str] = []
+    for raw in lemmas:
+        key = _clean_lemma(str(raw))
+        if not key or key in keys_seen:
+            if key:
+                already.append(str(raw))
+            continue
+        keys_seen.add(key)
+        new_keys.append(key)
+
+    if new_keys:
+        path = _find_blacklist_path(lang, create=True)
+        has_content = path.exists() and path.stat().st_size > 0
+        encoding = _detect_encoding(path) if has_content else "utf-8"
+        _append_lines(path, encoding, new_keys)
+        _load_blacklist_raw.cache_clear()
+        logger.info("lemma_blacklist_appended", lang=lang.value, added=len(new_keys))
+
+    return len(new_keys), already
+
+
+def remove_from_blacklist(lang: LemmaLang, lemmas: list[str]) -> int:
+    """Удалить леммы из чёрного списка `lang`. Возвращает, сколько реально было удалено."""
+    if lang in _MERGED_COMPONENTS:
+        raise MergedLangNotWritableError(
+            f"'{lang.value}' — вычисляемый merged-словарь, свой чёрный список недоступен для записи"
+        )
+    to_remove = {_clean_lemma(str(x)) for x in lemmas}
+    to_remove.discard("")
+    try:
+        path = _find_blacklist_path(lang)
+    except FileNotFoundError:
+        return 0
+
+    encoding = _detect_encoding(path)
+    with open(path, encoding=encoding, newline="") as fh:
+        lines = [line for line in fh.read().splitlines() if line.strip()]
+    kept = [line for line in lines if _clean_lemma(line) not in to_remove]
+    removed = len(lines) - len(kept)
+    if removed:
+        with open(path, "w", encoding=encoding, newline="") as fh:
+            for line in kept:
+                fh.write(line + "\n")
+        _load_blacklist_raw.cache_clear()
+        logger.info("lemma_blacklist_removed", lang=lang.value, removed=removed)
+    return removed
+
+
 def _format_weight(value: object) -> str:
-    """Число 0.0..1.0 → строка в стиле исходных CSV (запятая как разделитель, без хвостовых нулей)."""
+    """
+    Число 0.0..1.0 → строка в стиле исходных CSV (запятая как разделитель, без
+    хвостовых нулей). 2 знака после запятой — как в исходных словарях (напр.
+    "0,17"), а не 4: избыточная точность из LLM/нормализации не должна попадать
+    в CSV при записи через редактор лемм.
+    """
     try:
         f = float(value)
     except (TypeError, ValueError):
         f = 0.0
     f = max(0.0, min(1.0, f))
-    s = f"{f:.4f}".rstrip("0").rstrip(".")
+    s = f"{f:.2f}".rstrip("0").rstrip(".")
     if s in ("", "-0"):
         s = "0"
     return s.replace(".", ",")
@@ -458,18 +660,7 @@ def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, int, list[st
                 fh.write(line + "\n")
             fh.write("\n".join(new_lines) + "\n")
     else:
-        with open(path, "rb") as fh:
-            fh.seek(0, 2)
-            has_content = fh.tell() > 0
-            needs_leading_newline = False
-            if has_content:
-                fh.seek(-1, 2)
-                needs_leading_newline = fh.read(1) not in (b"\n", b"\r")
-
-        with open(path, "a", encoding=write_encoding, newline="") as fh:
-            if needs_leading_newline:
-                fh.write("\n")
-            fh.write("\n".join(new_lines) + "\n")
+        _append_lines(path, write_encoding, new_lines)
 
     _load_index.cache_clear()
     logger.info(

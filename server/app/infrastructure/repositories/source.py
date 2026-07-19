@@ -4,7 +4,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.infrastructure.db.orm.models import Source, SourceAuditLog, SourceCategoryModel, SourceStatus
+from app.infrastructure.db.orm.models import Post, Source, SourceAuditLog, SourceCategoryModel, SourceStatus
 
 _OMIT = object()
 
@@ -251,6 +251,52 @@ async def list_sources(
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     return list(result.scalars().all())
+
+
+async def count_sources_by_status(db: AsyncSession, *, include_deleted: bool = False) -> dict[str, int]:
+    """Количество источников СМИ, сгруппированное по status (active/paused/disabled/error/blocked)."""
+    q = select(Source.status, func.count()).select_from(Source)
+    if not include_deleted:
+        q = q.where(Source.deleted_at.is_(None))
+    q = q.group_by(Source.status)
+    result = await db.execute(q)
+    return {status_value: int(cnt) for status_value, cnt in result.all()}
+
+
+async def count_sources_by_type(db: AsyncSession, *, include_deleted: bool = False) -> dict[str, int]:
+    """Количество источников СМИ, сгруппированное по source_type (vk/rss/telegram)."""
+    q = select(Source.source_type, func.count()).select_from(Source)
+    if not include_deleted:
+        q = q.where(Source.deleted_at.is_(None))
+    q = q.group_by(Source.source_type)
+    result = await db.execute(q)
+    return {(type_value or "unknown"): int(cnt) for type_value, cnt in result.all()}
+
+
+async def list_top_sources_by_posts(
+    db: AsyncSession,
+    *,
+    limit: int = 10,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> list[tuple[Source, int]]:
+    """
+    Топ источников по числу собранных постов (по created_at, если диапазон
+    задан) — для аналитики "кто больше всего контента даёт системе". Источники
+    без ни одного поста в выборке не попадают в список (inner join).
+    """
+    q = (
+        select(Source, func.count(Post.id).label("posts_count"))
+        .join(Post, Post.source_id == Source.id)
+        .where(Source.deleted_at.is_(None))
+    )
+    if date_from is not None:
+        q = q.where(Post.created_at >= date_from)
+    if date_to is not None:
+        q = q.where(Post.created_at <= date_to)
+    q = q.group_by(Source.id).order_by(func.count(Post.id).desc()).limit(limit)
+    result = await db.execute(q)
+    return [(src, int(cnt)) for src, cnt in result.all()]
 
 
 # ── Status transitions ──────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.services.content.lemma_scorer import LemmaLang
 from app.infrastructure.db.orm.models import StoryClusterStatus
 from app.presentation.api.dependencies import get_session
 from app.presentation.schemas.cluster import (
@@ -119,6 +120,13 @@ async def trending_endpoint(
         le=90,
         description="Ширина окна ретроспективы в сутках от as_of (используется только вместе с as_of)",
     ),
+    lemma_lang: LemmaLang = Query(
+        LemmaLang.ru,
+        description="Словарь для new_lemmas (только чёрный список — сами леммы не скорятся): ru, ru_un, usa, usa_un, frg",
+    ),
+    lemma_top_n: int = Query(
+        10, ge=0, le=50, description="Сколько самых частых лемм на кластер отдавать в new_lemmas (0 — не считать)"
+    ),
     db: AsyncSession = Depends(get_session),
 ) -> TrendingClustersResponse:
     """
@@ -131,6 +139,10 @@ async def trending_endpoint(
     Кластеры — стейтфул объекты, поэтому это посты даты X, сгруппированные по
     ИХ ТЕКУЩЕЙ принадлежности к кластеру, а не точная картина live-запроса
     в тот день (см. list_trending_combined).
+
+    new_lemmas на каждом элементе — самые частые леммы в постах ЭТОГО кластера
+    за то же окно (простой список, как topics); леммы из чёрного списка
+    (/lemma/blacklist) исключены.
     """
     return await trending_uc.execute(
         db,
@@ -141,6 +153,8 @@ async def trending_endpoint(
         limit=limit,
         as_of=as_of,
         window_days=window_days,
+        lemma_lang=lemma_lang,
+        lemma_top_n=lemma_top_n,
     )
 
 

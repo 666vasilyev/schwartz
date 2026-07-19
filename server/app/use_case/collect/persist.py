@@ -23,6 +23,7 @@ from app.presentation.schemas.collect import (
     CollectVkPublicPostItem,
     CollectVkPublicResponse,
 )
+from app.utils.html_text import strip_html
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -69,11 +70,17 @@ async def _apply_vk_collect_to_post(
 
 
 def _rss_combined_text(item: CollectRssPublicItem) -> str | None:
+    # Доп. страховка от HTML-тегов (<p>, <img> и т.д.) в title/text: клиент-сборщик
+    # уже должен был очистить их (см. client/app/utils/html_text.py), но это
+    # отдельный деплой — на случай рассинхрона версий или необычных лент чистим
+    # ещё раз здесь. strip_html идемпотентна: на уже чистом тексте ничего не меняет.
+    title = strip_html(str(item.title)) if item.title and str(item.title).strip() else None
+    text = strip_html(str(item.text)) if item.text and str(item.text).strip() else None
     parts: list[str] = []
-    if item.title and str(item.title).strip():
-        parts.append(str(item.title).strip())
-    if item.text and str(item.text).strip():
-        parts.append(str(item.text).strip())
+    if title:
+        parts.append(title)
+    if text:
+        parts.append(text)
     if not parts:
         return None
     return "\n\n".join(parts)

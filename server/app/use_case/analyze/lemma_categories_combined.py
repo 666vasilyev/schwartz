@@ -98,8 +98,20 @@ async def execute(
     aggregate = aggregate_vectors(all_vectors)
     dim_lemmas = aggregate_dimension_lemmas(all_dim_lemmas, top_n=top_n_lemmas)
 
+    # Доп. проверка согласованности: если итоговый score параметра равен 0
+    # (после округления до 4 знаков — см. aggregate_vectors), список лемм для
+    # него тоже должен быть пустым. По конструкции dimension_lemmas уже
+    # содержит только леммы с ненулевым весом ИМЕННО по этому параметру в
+    # конкретном посте (см. _score_text_full), но итоговый score — среднее по
+    # всему пулу постов и может округлиться до 0.0000, даже если 1-2 поста
+    # дали слабый ненулевой вклад. Такой ответ выглядел бы противоречиво
+    # (score=0, но lemmas не пуст), поэтому здесь явно приводим их в
+    # соответствие друг другу.
     values = {
-        col: LemmaDimensionScore(score=aggregate[col], lemmas=dim_lemmas.get(col, []))
+        col: LemmaDimensionScore(
+            score=aggregate[col],
+            lemmas=dim_lemmas.get(col, []) if aggregate[col] > 0 else [],
+        )
         for col in CSV_COLUMNS
     }
 

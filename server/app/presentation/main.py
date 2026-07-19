@@ -12,6 +12,7 @@ from app.application.services.worker.runner import worker as collection_worker
 from app.core.config import get_settings
 from app.infrastructure.clients import llm_registry
 from app.presentation.api.routes import collect, content, sources
+from app.presentation.api.routes.analytics import router as analytics_router
 from app.presentation.api.routes.clusters import router as clusters_router
 from app.presentation.api.routes.source_categories import router as source_categories_router
 from app.presentation.api.routes.collection import router as collection_router
@@ -102,6 +103,7 @@ app.include_router(schedule_router)
 app.include_router(clusters_router)
 app.include_router(source_categories_router)
 app.include_router(llm_settings_router)
+app.include_router(analytics_router)
 
 
 @app.get("/health", tags=["Health"], summary="Liveness probe")

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -135,6 +135,46 @@ async def list_posts(
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     return list(result.all())
+
+
+async def count_posts_since(db: AsyncSession, since: datetime) -> int:
+    """
+    Сколько постов СОБРАНО (created_at — момент сохранения в БД нашим
+    пайплайном) начиная с `since`. В отличие от count_posts (фильтр по
+    published_at — дате публикации на источнике), это про "статистику
+    собранных постов" на странице Аналитика — сколько мы реально загрузили,
+    а не когда исходный контент был опубликован.
+    """
+    q = select(func.count()).select_from(Post).where(Post.created_at >= since)
+    result = await db.execute(q)
+    return int(result.scalar_one() or 0)
+
+
+async def count_posts_by_day(
+    db: AsyncSession, *, date_from: datetime, date_to: datetime
+) -> list[tuple[date, int]]:
+    """
+    (день, количество) собранных постов (по created_at) в диапазоне
+    [date_from; date_to], отсортировано по дате. Дни без постов просто не
+    попадают в список — заполнение нулями и полный диапазон дат делает
+    use_case/analytics/posts_daily.py.
+
+    День считается явно в UTC (timezone('UTC', created_at)), а не через голое
+    date(created_at) — иначе группировка зависела бы от session timezone
+    Postgres-соединения, а date_from/date_to здесь всегда переданы в UTC
+    (см. use_case/analytics/posts_daily.py), что привело бы к рассинхрону
+    на постах у полуночи, если timezone сессии когда-нибудь окажется не UTC.
+    """
+    day_col = func.date(func.timezone("UTC", Post.created_at)).label("day")
+    q = (
+        select(day_col, func.count().label("cnt"))
+        .where(Post.created_at >= date_from)
+        .where(Post.created_at <= date_to)
+        .group_by(day_col)
+        .order_by(day_col)
+    )
+    result = await db.execute(q)
+    return [(row.day, int(row.cnt)) for row in result.all()]
 
 
 async def count_posts(

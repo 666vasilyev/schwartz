@@ -472,6 +472,73 @@ async def list_cluster_post_texts(
     return [t for t in res.scalars().all() if t]
 
 
+async def list_posts_in_clusters(
+    db: AsyncSession,
+    cluster_ids: list[int],
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> list[Post]:
+    """
+    Все посты (без ограничения на количество, в отличие от list_cluster_post_texts,
+    которая берёт максимум `limit` для LLM-разметки) из заданного набора кластеров,
+    опционально ограниченные окном published_at.
+
+    Используется для частотного анализа лемм по трендовым постам недели (см.
+    use_case/analyze/lemma_trend_candidates.py) — там нужен весь текстовый пул
+    недели, а не несколько последних постов на кластер.
+    """
+    if not cluster_ids:
+        return []
+    q = (
+        select(Post)
+        .join(PostClusterAssignment, PostClusterAssignment.post_id == Post.id)
+        .where(PostClusterAssignment.cluster_id.in_(cluster_ids))
+        .where(Post.text.isnot(None))
+    )
+    if date_from is not None:
+        q = q.where(Post.published_at >= date_from)
+    if date_to is not None:
+        q = q.where(Post.published_at <= date_to)
+    res = await db.execute(q.distinct())
+    return list(res.scalars().all())
+
+
+async def list_post_texts_by_cluster(
+    db: AsyncSession,
+    cluster_ids: list[int],
+    *,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> dict[int, list[str]]:
+    """
+    Тексты постов, сгруппированные по cluster_id (один запрос на весь набор
+    кластеров вместо N+1). Используется, чтобы посчитать частотные леммы
+    ("new_lemmas") отдельно для каждого трендового кластера в /clusters/trending
+    (см. use_case/clusters/_trending_common.py) — в отличие от
+    list_posts_in_clusters, где посты всех кластеров объединяются в один пул.
+    """
+    if not cluster_ids:
+        return {}
+    q = (
+        select(PostClusterAssignment.cluster_id, Post.text)
+        .join(Post, Post.id == PostClusterAssignment.post_id)
+        .where(PostClusterAssignment.cluster_id.in_(cluster_ids))
+        .where(Post.text.isnot(None))
+    )
+    if date_from is not None:
+        q = q.where(Post.published_at >= date_from)
+    if date_to is not None:
+        q = q.where(Post.published_at <= date_to)
+    res = await db.execute(q)
+    grouped: dict[int, list[str]] = {}
+    for cluster_id, text in res.all():
+        if not text:
+            continue
+        grouped.setdefault(int(cluster_id), []).append(text)
+    return grouped
+
+
 async def delete_all_clustering_data(db: AsyncSession) -> None:
     """Полная очистка перед rebuild (assignments → clusters → embeddings не трогаем)."""
     await db.execute(delete(PostClusterAssignment))

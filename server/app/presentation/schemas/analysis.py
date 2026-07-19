@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -115,6 +115,103 @@ class LemmaAppendResponse(BaseModel):
     skipped_duplicates: list[str] = Field(
         default_factory=list,
         description="Леммы, пропущенные как повтор внутри одного запроса (одна и та же лемма дважды)",
+    )
+
+
+class LemmaBlacklistActionRequest(BaseModel):
+    """
+    Единый запрос на добавление/удаление лемм в чёрном списке — action выбирает
+    операцию, mirrors POST /sources/{id}/action (SourceActionRequest).
+    """
+
+    action: Literal["add", "remove"]
+    lemmas: list[str] = Field(..., min_length=1, max_length=200, description="Леммы (слова) для чёрного списка")
+
+
+class LemmaBlacklistActionResponse(BaseModel):
+    """Ответ на /lemma/blacklist. Заполняется только часть полей, соответствующая action."""
+
+    lang: LemmaLang
+    action: Literal["add", "remove"]
+    added: int | None = Field(None, description="Сколько лемм было новыми и дописано (только action=add)")
+    already_present: list[str] = Field(
+        default_factory=list, description="Леммы, уже бывшие в чёрном списке — только action=add"
+    )
+    removed: int | None = Field(None, description="Сколько лемм реально было удалено (только action=remove)")
+
+
+class LemmaBlacklistListResponse(BaseModel):
+    lang: LemmaLang
+    lemmas: list[str] = Field(default_factory=list, description="Чёрный список лемм, отсортирован по алфавиту")
+
+
+class LemmaParameterCountsResponse(BaseModel):
+    """Только количество лемм словаря lang по каждому из 10 параметров ЦКМ — больше ничего."""
+
+    lang: LemmaLang
+    counts: dict[str, int] = Field(
+        description="Ключ — имя параметра ЦКМ (см. CSV_COLUMNS в lemma_scorer.py), значение — сколько лемм словаря имеют по нему ненулевой вес"
+    )
+
+
+class LemmaTrendWeekRange(BaseModel):
+    """Границы одной из недель, использованных при поиске частотных лемм трендов."""
+
+    date_from: date
+    date_to: date
+    posts_count: int = Field(description="Сколько постов трендовых кластеров недели попало в подсчёт частот")
+
+
+class LemmaTrendCandidateItem(BaseModel):
+    """
+    "Эмпирическая" лемма — устойчиво частая в трендовых постах за несколько
+    недель. weights/category заполняются LLM для первых `limit_candidates`
+    кандидатов (см. LemmaTrendCandidatesResponse); для остальных — пусто
+    (weights_assigned=False), их вес можно проставить вручную либо перезапросить
+    отдельно, увеличив limit_candidates.
+    """
+
+    lemma: str
+    weeks_matched: int = Field(
+        description="В скольких из проверенных недель лемма вошла в top_n_per_week самых частых слов"
+    )
+    total_occurrences: int = Field(
+        description="Суммарная частота по тем неделям, где лемма попала в top_n_per_week"
+    )
+    in_dictionary: bool = Field(
+        description="Уже есть такая лемма в словаре lang (True) или это потенциально новая лемма (False)"
+    )
+    weights: dict[str, float] = Field(
+        default_factory=dict,
+        description="Веса по 10 направлениям ЦКМ, предложенные LLM (см. weights_assigned)",
+    )
+    category: str = Field("", description="Категория, предложенная LLM (см. weights_assigned)")
+    weights_assigned: bool = Field(
+        False, description="Запрашивались ли для этой леммы веса у LLM (ограничено limit_candidates)"
+    )
+
+
+class LemmaTrendCandidatesResponse(BaseModel):
+    """
+    Предпросмотр "эмпирических" лемм по частоте в трендовых постах: лемма,
+    попавшая в топ частых слов минимум в min_weeks_match из проверенных недель,
+    плюс веса/категория, предложенные LLM (аналог /lemma/extract, но лемму не
+    придумывает LLM — она уже определена частотным методом). Ничего не
+    сохраняет; результат (weights+category) можно передать в /lemma/append как
+    есть после ручной проверки.
+    """
+
+    lang: LemmaLang
+    weeks: int = Field(description="Сколько последних недель проверено")
+    min_weeks_match: int = Field(description="Минимум недель, в которых лемма должна встретиться")
+    top_n_per_week: int = Field(description="Сколько самых частых слов на неделю рассматривалось")
+    limit_candidates: int = Field(
+        description="Максимум кандидатов (по убыванию weeks_matched/total_occurrences), для которых запрошены веса у LLM"
+    )
+    week_ranges: list[LemmaTrendWeekRange] = Field(default_factory=list)
+    candidates: list[LemmaTrendCandidateItem] = Field(
+        default_factory=list,
+        description="Отсортировано: сначала по числу недель-совпадений, потом по суммарной частоте",
     )
 
 
