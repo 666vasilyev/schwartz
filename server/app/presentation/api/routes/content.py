@@ -15,6 +15,7 @@ from app.presentation.api.dependencies import get_session
 from app.infrastructure.clients.llm import ask_llm
 from app.presentation.schemas.analysis import (
     CategoriesLemmaCkmResponse,
+    CategoriesOverviewResponse,
     CategoriesSchwartzTimeseriesResponse,
     CategoryLemmaByDayResponse,
     CategoryLangItem,
@@ -47,6 +48,7 @@ from app.use_case.analyze import lemma as analyze_lemma
 from app.use_case.analyze import lemma_categories as analyze_lemma_categories
 from app.use_case.analyze import lemma_categories_by_day as analyze_lemma_categories_by_day
 from app.use_case.analyze import lemma_categories_combined as analyze_lemma_categories_combined
+from app.use_case.analyze import lemma_categories_overview as analyze_lemma_categories_overview
 from app.use_case.analyze import lemma_category as analyze_lemma_category
 from app.use_case.analyze import lemma_category_by_day as analyze_lemma_category_by_day
 from app.use_case.analyze import lemma_source as analyze_lemma_source
@@ -158,7 +160,10 @@ async def analyze_categories_lemma(
 @router.post(
     "/lemma/categories/combined",
     response_model=CategoriesLemmaCkmResponse,
-    summary="ЦКМ по объединённому результату нескольких категорий (один результат) с леммами по каждому параметру",
+    summary=(
+        "ЦКМ по объединённому результату нескольких категорий (один результат) с леммами по каждому "
+        "параметру [DEPRECATED для связки тренды+ЦКМ — см. POST /lemma/categories/overview]"
+    ),
 )
 async def analyze_categories_lemma_combined(
     body: LemmaCategoriesRequest,
@@ -178,6 +183,11 @@ async def analyze_categories_lemma_combined(
     результатов, по одному на категорию) здесь один комбинированный результат:
     все посты всех категорий (каждая — своим словарём) объединяются в единый
     агрегат с разбивкой по леммам на параметр.
+
+    DEPRECATED для сценария "тренды + ЦКМ по одним и тем же категориям/периоду":
+    раньше это требовало отдельного GET /clusters/trending рядом с этим
+    запросом — теперь оба среза отдаёт один POST /lemma/categories/overview.
+    Этот метод остаётся рабочим и актуальным, если нужна только ЦКМ без трендов.
     """
     categories = [(item.category_name, item.lang) for item in body.categories]
     return await analyze_lemma_categories_combined.execute(
@@ -187,6 +197,60 @@ async def analyze_categories_lemma_combined(
         limit=limit,
         date_from=date_from,
         date_to=date_to,
+    )
+
+
+@router.post(
+    "/lemma/categories/overview",
+    response_model=CategoriesOverviewResponse,
+    summary="Тренды + комбинированная ЦКМ по категориям за период, одним запросом",
+)
+async def lemma_categories_overview(
+    body: LemmaCategoriesRequest,
+    date_from: datetime = Query(..., description="Начало периода (включительно)"),
+    date_to: datetime = Query(..., description="Конец периода (включительно)"),
+    trending_limit: int = Query(20, ge=1, le=200, description="Максимум трендовых кластеров в ответе"),
+    min_posts: int = Query(3, ge=1, description="Минимум постов в трендовом кластере за период"),
+    top_n_lemmas: int = Query(
+        15, ge=1, le=100, description="Сколько лемм максимум показывать на параметр ЦКМ (по убыванию частоты)"
+    ),
+    posts_limit: int | None = Query(
+        None, ge=1, description="Последние N постов НА КАЖДУЮ категорию для ЦКМ (по дате публикации)"
+    ),
+    lemma_lang: LemmaLang = Query(
+        LemmaLang.ru,
+        description="Словарь для new_lemmas трендов (только чёрный список — сами леммы не скорятся): ru, ru_un, usa, usa_un, frg",
+    ),
+    lemma_top_n: int = Query(
+        10, ge=0, le=50, description="Сколько самых частых лемм на трендовый кластер отдавать в new_lemmas (0 — не считать)"
+    ),
+    db: AsyncSession = Depends(get_session),
+) -> CategoriesOverviewResponse:
+    """
+    Объединяет то, что раньше требовало двух запросов с одинаковыми фильтрами
+    по категориям и периоду:
+      - тренды за [date_from; date_to] по объединённому множеству категорий из
+        body (как ретроспективный GET /clusters/trending?as_of=...&category_names=...);
+      - комбинированную ЦКМ по тем же категориям и периоду, у каждой свой язык
+        словаря (как POST /lemma/categories/combined).
+
+    Тело — список пар {category_name, lang}, как у /lemma/categories/combined:
+    можно передать сразу несколько категорий за один вызов вместо отдельного
+    запроса на каждую. Для тренда важны только имена категорий (объединение);
+    lang каждой категории используется только для расчёта её вклада в ЦКМ.
+    """
+    categories = [(item.category_name, item.lang) for item in body.categories]
+    return await analyze_lemma_categories_overview.execute(
+        db,
+        categories,
+        date_from=date_from,
+        date_to=date_to,
+        trending_limit=trending_limit,
+        min_posts=min_posts,
+        top_n_lemmas=top_n_lemmas,
+        posts_limit=posts_limit,
+        lemma_lang=lemma_lang,
+        lemma_top_n=lemma_top_n,
     )
 
 

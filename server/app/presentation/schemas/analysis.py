@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 
 from app.application.services.content.lemma_llm_extractor import TARGET_COUNT as _DEFAULT_LEMMA_COUNT
 from app.application.services.content.lemma_scorer import LemmaLang
+from app.presentation.schemas.cluster import TrendingClustersResponse
 from app.use_case.analyze._time_utils import TimeGranularity
 
 __all__ = ["TimeGranularity"]  # re-export so routes can import from one place
@@ -280,6 +281,20 @@ class CategoriesLemmaCkmResponse(BaseModel):
     values: dict[str, LemmaDimensionScore] = Field(
         description="Ключ — имя параметра ЦКМ (см. CSV_COLUMNS в lemma_scorer.py)",
     )
+
+
+class CategoriesOverviewResponse(BaseModel):
+    """
+    Объединённый ответ вместо пары запросов с одинаковыми фильтрами по
+    категории/периоду: GET /clusters/trending (тренды за период по этим
+    категориям) + POST /lemma/categories/combined (комбинированная ЦКМ по тем
+    же категориям и периоду). Возвращает оба среза за один вызов.
+    """
+
+    date_from: datetime
+    date_to: datetime
+    trending: TrendingClustersResponse
+    ckm: CategoriesLemmaCkmResponse
 
 
 class CategoryLemmaDayItem(BaseModel):

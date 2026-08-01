@@ -79,7 +79,10 @@ async def list_clusters_endpoint(
 @router.get(
     "/trending",
     response_model=TrendingClustersResponse,
-    summary="Трендовые сюжеты за окно (по приросту постов)",
+    summary=(
+        "Трендовые сюжеты за окно (по приросту постов) "
+        "[DEPRECATED для связки тренды+ЦКМ по категориям — см. POST /analyze/lemma/categories/overview]"
+    ),
 )
 async def trending_endpoint(
     source_ids: list[int] = Query(
@@ -143,6 +146,12 @@ async def trending_endpoint(
     new_lemmas на каждом элементе — самые частые леммы в постах ЭТОГО кластера
     за то же окно (простой список, как topics); леммы из чёрного списка
     (/lemma/blacklist) исключены.
+
+    DEPRECATED для сценария "тренды + ЦКМ по одним и тем же категориям/периоду":
+    раньше рядом с этим запросом нужен был ещё отдельный POST
+    /lemma/categories/combined — теперь оба среза отдаёт один POST
+    /analyze/lemma/categories/overview. Этот метод остаётся рабочим и
+    актуальным для live-трендов и любых сценариев без ЦКМ.
     """
     return await trending_uc.execute(
         db,
