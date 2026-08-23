@@ -68,7 +68,7 @@ _DATE_TO_QUERY = Query(None, description="Конец диапазона (publish
 @router.get(
     "/lemma/baseline",
     response_model=LemmaBaselineResponse,
-    summary="Базовое распределение ЦКМ для языка (эталонные значения из словаря)",
+    summary="Базовое распределение ЦКМ для языка (эталонные значения из словаря) + количество лемм на параметр",
 )
 def get_lemma_baseline(
     lang: LemmaLang = _LANG_QUERY,
@@ -77,7 +77,7 @@ def get_lemma_baseline(
     if result is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Baseline для языка '{lang.value}' не найден")
-    return LemmaBaselineResponse(**result)
+    return LemmaBaselineResponse(**result, counts=lemma_scorer.count_lemmas_by_parameter(lang))
 
 
 @router.get(

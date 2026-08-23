@@ -43,6 +43,13 @@ class LemmaCategoriesRequest(BaseModel):
 class LemmaBaselineResponse(BaseModel):
     label: str
     schwartz_values: dict[str, float]
+    counts: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Ключ — параметр ЦКМ (см. CSV_COLUMNS), значение — сколько лемм словаря имеют по нему "
+            "ненулевой вес (та же величина, что и в /lemma/counts, показана рядом с эталонным baseline)"
+        ),
+    )
 
 
 class LemmaExtractRequest(BaseModel):
