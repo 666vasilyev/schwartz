@@ -715,4 +715,43 @@ class RefreshToken(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+
+class LemmaBufferEntry(Base):
+    """
+    Лемма/словосочетание, выделенное пользователем на фронте при чтении
+    постов/трендов — персональный кандидат для последующего добавления в
+    словарь через /lemma/append. Одна строка на (user_id, lemma); повторное
+    выделение той же леммы инкрементирует times_selected вместо дубля —
+    сигнал важности, аналогичный weeks_matched в /lemma/trend-candidates.
+
+    Без своего lang: язык словаря, относительно которого лемма уже есть/в
+    чёрном списке, выбирается на этапе просмотра буфера (GET .../buffer?lang=),
+    а не на этапе выделения (см. use_case/маршрут).
+    """
+
+    __tablename__ = "lemma_buffer_entries"
+    __table_args__ = (
+        UniqueConstraint("user_id", "lemma", name="uq_lemma_buffer_user_lemma"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    lemma: Mapped[str] = mapped_column(String(255), nullable=False)
+    raw_text: Mapped[str] = mapped_column(String(255), nullable=False)
+    times_selected: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    source_post_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("posts.id", ondelete="SET NULL"), nullable=True
+    )
+    source_cluster_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("story_clusters.id", ondelete="SET NULL"), nullable=True
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
     cluster: Mapped["StoryCluster"] = relationship(back_populates="assignments")

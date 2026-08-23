@@ -10,6 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.services.content import lemma_scorer
 from app.application.services.content.lemma_llm_extractor import extract_new_lemmas
 from app.application.services.content.lemma_scorer import LemmaLang, read_baseline
+from app.infrastructure.db.orm.models import User
+from app.infrastructure.repositories.lemma_buffer import (
+    clear_buffer,
+    list_buffer_entries,
+    remove_buffer_entries,
+    upsert_buffer_entry,
+)
 from app.infrastructure.repositories.post import get_post_by_id
 from app.presentation.api.dependencies import get_current_user, get_session
 from app.infrastructure.clients.llm import ask_llm
@@ -42,6 +49,12 @@ from app.presentation.schemas.analysis import (
     SourceLemmaAnalysisResponse,
     SourceStoredSchwartzResponse,
     TimeGranularity,
+)
+from app.presentation.schemas.lemma_buffer import (
+    LemmaBufferActionRequest,
+    LemmaBufferActionResponse,
+    LemmaBufferItem,
+    LemmaBufferListResponse,
 )
 from app.use_case.analyze import get_stored as analyze_get_stored
 from app.use_case.analyze import lemma as analyze_lemma
@@ -498,6 +511,99 @@ async def lemma_trend_candidate_weights(
     можно передать в /lemma/append как есть.
     """
     return await analyze_lemma_trend_weight.execute(lemma, lang, provider=provider, model=model)
+
+
+@router.post(
+    "/lemma/buffer",
+    response_model=LemmaBufferActionResponse,
+    summary="Буфер лемм: добавить выделенные на фронте фрагменты / удалить / очистить (action=add|remove|clear)",
+)
+async def lemma_buffer_action(
+    body: LemmaBufferActionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+) -> LemmaBufferActionResponse:
+    """
+    Буфер персональный — привязан к текущему пользователю (см. Authorization).
+
+    action=add — фронт вызывает при каждом выделении текста (слово/
+    словосочетание где угодно: пост, тренд и т.д.). Повторное выделение уже
+    сохранённой леммы не создаёт дубль, а увеличивает times_selected — сигнал
+    важности, аналогичный weeks_matched в /lemma/trend-candidates.
+
+    Веса/категорию для конкретной леммы из буфера считать отдельно через уже
+    существующий GET /lemma/trend-candidates/{lemma}/weights (эндпоинт общий —
+    лемма не обязана быть именно из трендов). Результат можно передать в
+    /lemma/append как есть.
+    """
+    if body.action == "add":
+        added = 0
+        updated = 0
+        for item in body.items:
+            key = lemma_scorer.clean_lemma(item.text)
+            if not key:
+                continue
+            _entry, is_new = await upsert_buffer_entry(
+                db,
+                user_id=current_user.id,
+                lemma=key,
+                raw_text=item.text.strip(),
+                source_post_id=item.source_post_id,
+                source_cluster_id=item.source_cluster_id,
+            )
+            if is_new:
+                added += 1
+            else:
+                updated += 1
+        return LemmaBufferActionResponse(action=body.action, added=added, updated=updated)
+
+    if body.action == "remove":
+        keys = [k for k in (lemma_scorer.clean_lemma(x) for x in body.lemmas) if k]
+        removed = await remove_buffer_entries(db, user_id=current_user.id, lemmas=keys)
+        return LemmaBufferActionResponse(action=body.action, removed=removed)
+
+    removed = await clear_buffer(db, user_id=current_user.id)
+    return LemmaBufferActionResponse(action=body.action, removed=removed)
+
+
+@router.get(
+    "/lemma/buffer",
+    response_model=LemmaBufferListResponse,
+    summary="Буфер лемм текущего пользователя — кандидаты для /lemma/append из выделений на фронте",
+)
+async def get_lemma_buffer(
+    lang: LemmaLang = _LANG_QUERY,
+    search: str | None = Query(None, description="Подстрока для фильтра по лемме"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
+) -> LemmaBufferListResponse:
+    """
+    Отсортировано по times_selected (по убыванию), затем по last_seen_at —
+    самые часто/недавно выделяемые леммы первыми. in_dictionary/in_blacklist
+    считаются относительно словаря `lang` — сам буфер языка не хранит (лемма
+    может пригодиться сразу для нескольких словарей).
+    """
+    rows, total = await list_buffer_entries(
+        db, user_id=current_user.id, search=search, limit=limit, offset=offset
+    )
+    known = lemma_scorer.existing_lemmas(lang)
+    items = [
+        LemmaBufferItem(
+            lemma=row.lemma,
+            raw_text=row.raw_text,
+            times_selected=row.times_selected,
+            first_seen_at=row.first_seen_at,
+            last_seen_at=row.last_seen_at,
+            source_post_id=row.source_post_id,
+            source_cluster_id=row.source_cluster_id,
+            in_dictionary=row.lemma in known,
+            in_blacklist=lemma_scorer.is_blacklisted(row.lemma, lang),
+        )
+        for row in rows
+    ]
+    return LemmaBufferListResponse(lang=lang, total=total, offset=offset, limit=limit, items=items)
 
 
 @router.post(
