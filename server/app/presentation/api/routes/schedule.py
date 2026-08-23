@@ -29,7 +29,7 @@ from app.infrastructure.repositories.collection_job import (
 )
 from app.infrastructure.repositories.schedule import add_schedule_log
 from app.infrastructure.repositories.source import get_source_by_id
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.collection_job import JobRead
 from app.presentation.schemas.schedule import (
     DueSourceItem,
@@ -52,7 +52,7 @@ from app.use_case.schedule import recalculate as recalc_uc
 from app.use_case.schedule import rules as rules_uc
 from app.use_case.schedule import upcoming as upcoming_uc
 
-router = APIRouter(prefix="/api/v1/scheduler", tags=["Scheduler"])
+router = APIRouter(prefix="/api/v1/scheduler", tags=["Scheduler"], dependencies=[Depends(get_current_user)])
 
 
 # ── Rules CRUD ─────────────────────────────────────────────────────────────

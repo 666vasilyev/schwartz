@@ -6,7 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.source import SourceListResponse, SourceRead
 from app.presentation.schemas.source_category import (
     SourceCategoryCreateRequest,
@@ -17,7 +17,9 @@ from app.presentation.schemas.source_category import (
 )
 from app.use_case.sources import categories as categories_uc
 
-router = APIRouter(prefix="/api/v1/source-categories", tags=["Source Categories"])
+router = APIRouter(
+    prefix="/api/v1/source-categories", tags=["Source Categories"], dependencies=[Depends(get_current_user)]
+)
 
 
 @router.post(

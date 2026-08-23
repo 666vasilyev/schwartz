@@ -11,7 +11,7 @@ from app.application.services.content import lemma_scorer
 from app.application.services.content.lemma_llm_extractor import extract_new_lemmas
 from app.application.services.content.lemma_scorer import LemmaLang, read_baseline
 from app.infrastructure.repositories.post import get_post_by_id
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.infrastructure.clients.llm import ask_llm
 from app.presentation.schemas.analysis import (
     CategoriesLemmaCkmResponse,
@@ -56,7 +56,7 @@ from app.use_case.analyze import lemma_trend_candidates as analyze_lemma_trend_c
 from app.use_case.analyze import lemma_trend_weight as analyze_lemma_trend_weight
 from app.use_case.analyze import post as analyze_post
 
-router = APIRouter(prefix="/analyze", tags=["Content Analysis"])
+router = APIRouter(prefix="/analyze", tags=["Content Analysis"], dependencies=[Depends(get_current_user)])
 
 # ── Общие Query-параметры (переиспользуются в нескольких ручках ниже, чтобы не
 #    держать одинаковый Query(...)/описание в 7 и 5 местах соответственно) ──

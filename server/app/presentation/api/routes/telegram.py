@@ -21,7 +21,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.telegram import (
     TelegramFetchPreviewResponse,
     TelegramFetchRequest,
@@ -37,7 +37,7 @@ from app.presentation.schemas.telegram import (
 from app.use_case.telegram import fetch as fetch_uc
 from app.use_case.telegram import sessions as sessions_uc
 
-router = APIRouter(prefix="/api/v1/telegram", tags=["Telegram"])
+router = APIRouter(prefix="/api/v1/telegram", tags=["Telegram"], dependencies=[Depends(get_current_user)])
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────

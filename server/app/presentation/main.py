@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.infrastructure.clients import llm_registry
 from app.presentation.api.routes import collect, content, sources
 from app.presentation.api.routes.analytics import router as analytics_router
+from app.presentation.api.routes.auth import router as auth_router
 from app.presentation.api.routes.clusters import router as clusters_router
 from app.presentation.api.routes.source_categories import router as source_categories_router
 from app.presentation.api.routes.collection import router as collection_router
@@ -92,6 +93,7 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 
 
 # Register routers
+app.include_router(auth_router)
 app.include_router(content.router)
 app.include_router(sources.router)
 app.include_router(posts_router)

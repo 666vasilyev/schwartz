@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.worker.runner import worker as _worker
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.collection_job import (
     BulkFetchRequest,
     BulkFetchResponse,
@@ -24,7 +24,9 @@ from app.presentation.schemas.collection_job import (
 )
 from app.use_case.collection import jobs as jobs_uc
 
-router = APIRouter(prefix="/api/v1/collection", tags=["Collection Jobs"])
+router = APIRouter(
+    prefix="/api/v1/collection", tags=["Collection Jobs"], dependencies=[Depends(get_current_user)]
+)
 
 
 # ── Jobs CRUD ──────────────────────────────────────────────────────────────

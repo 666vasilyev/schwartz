@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.content.lemma_scorer import LemmaLang
 from app.infrastructure.db.orm.models import StoryClusterStatus
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.cluster import (
     ClusterDetailResponse,
     ClusterListResponse,
@@ -39,7 +39,7 @@ from app.use_case.clusters import (
     trending as trending_uc,
 )
 
-router = APIRouter(prefix="/api/v1/clusters", tags=["Clusters"])
+router = APIRouter(prefix="/api/v1/clusters", tags=["Clusters"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(

@@ -6,11 +6,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.collect import CollectVkPublicResponse
 from app.use_case.collect import get as collect_get
 
-router = APIRouter(prefix="/collect", tags=["Collect"])
+router = APIRouter(prefix="/collect", tags=["Collect"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(

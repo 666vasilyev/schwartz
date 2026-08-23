@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     # Тот же секрет, что у collector; пустой — без заголовка Authorization (локальная разработка)
     collector_shared_secret: str = ""
 
+    # ── Auth ─────────────────────────────────────────────────────────────────
+    # Секрет для подписи JWT access-токенов (HS256). ОБЯЗАТЕЛЬНО переопределить
+    # в .env для production — дефолт годится только для локальной разработки.
+    jwt_secret: str = Field(default="dev-insecure-secret-change-me", alias="JWT_SECRET")
+    jwt_access_token_expire_minutes: int = 60
+    jwt_refresh_token_expire_days: int = 30
+
     # ── Clustering / embeddings ────────────────────────────────────────────
     # Имя модели sentence-transformers; должно соответствовать embedding_dim
     embedding_model_name: str = "intfloat/multilingual-e5-base"

@@ -15,7 +15,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.analytics import (
     PostsCollectedStatsResponse,
     PostsDailyResponse,
@@ -27,7 +27,7 @@ from app.use_case.analytics import posts_stats as posts_stats_uc
 from app.use_case.analytics import sources_counts as sources_counts_uc
 from app.use_case.analytics import top_sources as top_sources_uc
 
-router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics"])
+router = APIRouter(prefix="/api/v1/analytics", tags=["Analytics"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(

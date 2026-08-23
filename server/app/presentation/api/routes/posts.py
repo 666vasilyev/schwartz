@@ -8,13 +8,13 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.post import PostListResponse
 from app.use_case.posts import export_posts as export_uc
 from app.use_case.posts import get_all as get_all_uc
 from app.use_case.posts import import_posts as import_uc
 
-router = APIRouter(prefix="/api/v1/posts", tags=["Posts"])
+router = APIRouter(prefix="/api/v1/posts", tags=["Posts"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(

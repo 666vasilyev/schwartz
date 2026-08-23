@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Path, Query, Response, UploadFile,
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.source import (
     AuditLogListResponse,
     BulkCreateRequest,
@@ -43,7 +43,7 @@ from app.use_case.sources import validate as validate_uc
 from app.use_case.sources import bulk_create as bulk_create_uc
 from app.use_case.sources import bulk_update as bulk_update_uc
 
-router = APIRouter(prefix="/api/v1/sources", tags=["Sources"])
+router = APIRouter(prefix="/api/v1/sources", tags=["Sources"], dependencies=[Depends(get_current_user)])
 
 
 # ── Collection endpoints (must come before /{source_id}) ──────────────────

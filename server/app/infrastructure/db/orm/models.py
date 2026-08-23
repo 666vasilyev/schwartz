@@ -674,4 +674,45 @@ class PostClusterAssignment(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+
+# ─── Auth ───────────────────────────────────────────────────────────────────
+
+
+class User(Base):
+    """
+    Учётная запись. Регистрация закрытая — пользователей создаёт только
+    scripts/create_user.py (нет HTTP-ручки регистрации и ролей в v1).
+    """
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class RefreshToken(Base):
+    """
+    Refresh-токен: храним только хэш (не сырое значение), чтобы утечка БД не
+    давала готовые токены для входа. revoked_at != null — токен отозван
+    (logout или ротация при /auth/refresh) и не может быть использован повторно.
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
     cluster: Mapped["StoryCluster"] = relationship(back_populates="assignments")

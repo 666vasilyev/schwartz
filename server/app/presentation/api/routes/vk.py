@@ -22,7 +22,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Path, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.presentation.api.dependencies import get_session
+from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.vk import (
     VkCollectionState,
     VkFetchPreviewRequest,
@@ -51,7 +51,7 @@ from app.use_case.vk import state as state_uc
 from app.use_case.vk import tokens as tokens_uc
 from app.use_case.vk import validate as validate_uc
 
-router = APIRouter(prefix="/api/v1/vk", tags=["VK"])
+router = APIRouter(prefix="/api/v1/vk", tags=["VK"], dependencies=[Depends(get_current_user)])
 
 
 # ── Resolve & validate ─────────────────────────────────────────────────────

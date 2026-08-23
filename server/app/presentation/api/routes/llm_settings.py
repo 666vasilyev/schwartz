@@ -6,9 +6,10 @@ PATCH /api/v1/llm/active  — сменить провайдер/модель в 
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.infrastructure.clients import llm_registry
+from app.presentation.api.dependencies import get_current_user
 from app.presentation.schemas.llm_settings import (
     LLMActiveRequest,
     LLMActiveResponse,
@@ -16,7 +17,7 @@ from app.presentation.schemas.llm_settings import (
     LLMModelGroup,
 )
 
-router = APIRouter(prefix="/api/v1/llm", tags=["LLM Settings"])
+router = APIRouter(prefix="/api/v1/llm", tags=["LLM Settings"], dependencies=[Depends(get_current_user)])
 
 
 @router.get(
