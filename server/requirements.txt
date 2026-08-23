@@ -10,9 +10,10 @@ tenacity>=8.0
 pydantic>=2.0
 pydantic-settings>=2.0
 structlog>=24.0
-# Auth: JWT access tokens + bcrypt password hashing
+# Auth: JWT access tokens + bcrypt password hashing (bcrypt напрямую — passlib
+# не совместим с bcrypt>=4.1, см. докстринг app/application/services/auth/password.py)
 PyJWT>=2.8
-passlib[bcrypt]>=1.7
+bcrypt>=4.1
 feedparser>=6.0
 python-multipart
 telethon>=1.36
