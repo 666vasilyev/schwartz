@@ -18,6 +18,8 @@ services:
     environment:
       COLLECTOR_BASE_URL: http://client:8080
       HF_HOME: /cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
     extra_hosts:
       - "host-gateway:host-gateway"
     volumes:
