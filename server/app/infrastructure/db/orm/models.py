@@ -674,6 +674,8 @@ class PostClusterAssignment(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
+    cluster: Mapped["StoryCluster"] = relationship(back_populates="assignments")
+
 
 # ─── Auth ───────────────────────────────────────────────────────────────────
 
@@ -753,5 +755,3 @@ class LemmaBufferEntry(Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
-
-    cluster: Mapped["StoryCluster"] = relationship(back_populates="assignments")
