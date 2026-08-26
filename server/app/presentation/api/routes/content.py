@@ -9,12 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.content import lemma_scorer
 from app.application.services.content.lemma_llm_extractor import extract_new_lemmas
-from app.application.services.content.lemma_scorer import LemmaLang, read_baseline
+from app.application.services.content.lemma_scorer import LemmaLang
+from app.application.services.content.lemmatizer import lemmatize
 from app.infrastructure.db.orm.models import User
 from app.infrastructure.repositories.lemma_buffer import (
     clear_buffer,
     list_buffer_entries,
     remove_buffer_entries,
+    set_buffer_weights,
     upsert_buffer_entry,
 )
 from app.infrastructure.repositories.post import get_post_by_id
@@ -29,7 +31,6 @@ from app.presentation.schemas.analysis import (
     LemmaAnalysisResult,
     LemmaAppendRequest,
     LemmaAppendResponse,
-    LemmaBaselineResponse,
     LemmaBlacklistActionRequest,
     LemmaBlacklistActionResponse,
     LemmaBlacklistListResponse,
@@ -76,21 +77,6 @@ router = APIRouter(prefix="/analyze", tags=["Content Analysis"], dependencies=[D
 _LANG_QUERY = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg")
 _DATE_FROM_QUERY = Query(None, description="Начало диапазона (published_at >=)")
 _DATE_TO_QUERY = Query(None, description="Конец диапазона (published_at <=)")
-
-
-@router.get(
-    "/lemma/baseline",
-    response_model=LemmaBaselineResponse,
-    summary="Базовое распределение ЦКМ для языка (эталонные значения из словаря) + количество лемм на параметр",
-)
-def get_lemma_baseline(
-    lang: LemmaLang = _LANG_QUERY,
-) -> LemmaBaselineResponse:
-    result = read_baseline(lang)
-    if result is None:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail=f"Baseline для языка '{lang.value}' не найден")
-    return LemmaBaselineResponse(**result, counts=lemma_scorer.count_lemmas_by_parameter(lang))
 
 
 @router.get(
@@ -344,12 +330,16 @@ async def extract_lemma_candidates(
     """
     Прогоняет текст через словарный метод (чтобы узнать, какие леммы `lang` уже
     встретились), затем просит LLM подобрать новые, не повторяющиеся леммы по тем
-    же 10 измерениям ЦКМ. Результат — превью для ручной проверки; чтобы сохранить
-    леммы в CSV, передайте `new_lemmas` из ответа в `/analyze/lemma/append`.
+    же 10 измерениям ЦКМ. Каждая предложенная лемма приводится к начальной форме
+    (см. lemmatizer/) перед показом — чтобы результат уже был в каноническом виде.
+    Результат — превью для ручной проверки; чтобы сохранить леммы в CSV, передайте
+    `new_lemmas` из ответа в `/analyze/lemma/append`.
     """
     new_lemmas, matched = await extract_new_lemmas(
         body.text, lang, count=body.count, provider=body.provider, model=body.model
     )
+    for item in new_lemmas:
+        item["lemma"] = lemmatize(item["lemma"], lang)
     return LemmaExtractResponse(
         lang=lang,
         already_matched=matched,
@@ -357,29 +347,68 @@ async def extract_lemma_candidates(
     )
 
 
-def _append_lemmas_to_csv(body: LemmaAppendRequest, lang: LemmaLang) -> LemmaAppendResponse:
-    """Общая логика для /lemma/append и /lemma/csv (POST) — upsert в CSV-словарь."""
+def _append_lemmas_to_csv(
+    body: LemmaAppendRequest, lang: LemmaLang, *, overwrite_existing: bool = True
+) -> LemmaAppendResponse:
+    """
+    Общая логика для /lemma/append — upsert (или skip-if-exists) в CSV-словарь.
+    Перед записью каждая лемма приводится к начальной форме (см.
+    app/application/services/content/lemmatizer/) — иначе в словаре могли бы
+    накапливаться разные словоформы одного и того же понятия.
+    """
+    items = []
+    for item in body.lemmas:
+        data = item.model_dump()
+        data["lemma"] = lemmatize(data["lemma"], lang)
+        items.append(data)
     try:
-        added, updated, skipped = lemma_scorer.append_lemmas(
-            lang, [item.model_dump() for item in body.lemmas]
+        added, updated, skipped, already_in_dict = lemma_scorer.append_lemmas(
+            lang, items, overwrite_existing=overwrite_existing
         )
     except lemma_scorer.MergedLangNotWritableError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    return LemmaAppendResponse(lang=lang, added=added, updated=updated, skipped_duplicates=skipped)
+    return LemmaAppendResponse(
+        lang=lang,
+        added=added,
+        updated=updated,
+        skipped_duplicates=skipped,
+        already_in_dictionary=already_in_dict,
+    )
 
 
 @router.post(
     "/lemma/append",
     response_model=LemmaAppendResponse,
-    summary="Добавить новые / обновить существующие леммы в CSV-словаре",
+    summary="Добавить новые / обновить существующие леммы в CSV-словаре (и вычистить их из буфера пользователя)",
 )
-def append_lemma_candidates(
+async def append_lemma_candidates(
     body: LemmaAppendRequest,
     lang: LemmaLang = Query(
         ..., description="Словарь для записи: ru, ru_un, usa, usa_un, frg (merged — вычисляемые, только для чтения)"
     ),
+    overwrite_existing: bool = Query(
+        True,
+        description=(
+            "true (по умолчанию, обратная совместимость) — лемма, уже существующая в словаре, "
+            "перезаписывается новыми весами. false — существующие леммы не трогаются, "
+            "попадают в already_in_dictionary ответа и не перезаписываются."
+        ),
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_session),
 ) -> LemmaAppendResponse:
-    return _append_lemmas_to_csv(body, lang)
+    """
+    После записи в CSV-словарь автоматически убирает из буфера текущего
+    пользователя (см. POST/GET /lemma/buffer) все леммы, переданные в этом
+    запросе — неважно, добавлены ли они как новые, перезаписаны или пропущены
+    как уже существующие: раз пользователь отправил лемму в append, она
+    считается обработанной и больше не кандидат буфера.
+    """
+    result = _append_lemmas_to_csv(body, lang, overwrite_existing=overwrite_existing)
+    lemma_keys = [k for k in (lemma_scorer.clean_lemma(item.lemma) for item in body.lemmas) if k]
+    if lemma_keys:
+        await remove_buffer_entries(db, user_id=current_user.id, lemmas=lemma_keys)
+    return result
 
 
 @router.get(
@@ -516,7 +545,7 @@ async def lemma_trend_candidate_weights(
 @router.post(
     "/lemma/buffer",
     response_model=LemmaBufferActionResponse,
-    summary="Буфер лемм: добавить выделенные на фронте фрагменты / удалить / очистить (action=add|remove|clear)",
+    summary="Буфер лемм: добавить фрагменты / сохранить веса / удалить / очистить (action=add|set_weights|remove|clear)",
 )
 async def lemma_buffer_action(
     body: LemmaBufferActionRequest,
@@ -528,13 +557,18 @@ async def lemma_buffer_action(
 
     action=add — фронт вызывает при каждом выделении текста (слово/
     словосочетание где угодно: пост, тренд и т.д.). Повторное выделение уже
-    сохранённой леммы не создаёт дубль, а увеличивает times_selected — сигнал
-    важности, аналогичный weeks_matched в /lemma/trend-candidates.
+    сохранённой леммы не создаёт дубль и не двигает её место в буфере (порядок
+    — по первому выделению, см. GET).
 
-    Веса/категорию для конкретной леммы из буфера считать отдельно через уже
-    существующий GET /lemma/trend-candidates/{lemma}/weights (эндпоинт общий —
-    лемма не обязана быть именно из трендов). Результат можно передать в
-    /lemma/append как есть.
+    action=set_weights — сохранить веса/категорию для лемм, уже находящихся в
+    буфере: либо результат LLM-генерации (уже существующий
+    GET /lemma/trend-candidates/{lemma}/weights — эндпоинт общий, лемма не
+    обязана быть именно из трендов), либо введённые вручную на фронте
+    значения. Леммы, которых нет в буфере, попадают в not_found и
+    пропускаются. После сохранения GET /lemma/buffer вернёт эту лемму уже в
+    формате /lemma/append (lemma, weights, category).
+
+    action=remove/clear — как раньше.
     """
     if body.action == "add":
         added = 0
@@ -556,6 +590,22 @@ async def lemma_buffer_action(
             else:
                 updated += 1
         return LemmaBufferActionResponse(action=body.action, added=added, updated=updated)
+
+    if body.action == "set_weights":
+        updated = 0
+        not_found: list[str] = []
+        for item in body.weights_items:
+            key = lemma_scorer.clean_lemma(item.lemma)
+            if not key:
+                continue
+            ok = await set_buffer_weights(
+                db, user_id=current_user.id, lemma=key, weights=item.weights, category=item.category
+            )
+            if ok:
+                updated += 1
+            else:
+                not_found.append(item.lemma)
+        return LemmaBufferActionResponse(action=body.action, updated=updated, not_found=not_found)
 
     if body.action == "remove":
         keys = [k for k in (lemma_scorer.clean_lemma(x) for x in body.lemmas) if k]
@@ -580,10 +630,11 @@ async def get_lemma_buffer(
     db: AsyncSession = Depends(get_session),
 ) -> LemmaBufferListResponse:
     """
-    Отсортировано по times_selected (по убыванию), затем по last_seen_at —
-    самые часто/недавно выделяемые леммы первыми. in_dictionary/in_blacklist
-    считаются относительно словаря `lang` — сам буфер языка не хранит (лемма
-    может пригодиться сразу для нескольких словарей).
+    Отсортировано по first_seen_at (первая выделенная лемма — первая в
+    списке). in_dictionary/in_blacklist считаются относительно словаря `lang`
+    — сам буфер языка не хранит (лемма может пригодиться сразу для нескольких
+    словарей). Когда у элемента заполнены weights/category (см.
+    action=set_weights) — он уже в формате /lemma/append.
     """
     rows, total = await list_buffer_entries(
         db, user_id=current_user.id, search=search, limit=limit, offset=offset
@@ -592,8 +643,9 @@ async def get_lemma_buffer(
     items = [
         LemmaBufferItem(
             lemma=row.lemma,
+            weights=row.weights,
+            category=row.category,
             raw_text=row.raw_text,
-            times_selected=row.times_selected,
             first_seen_at=row.first_seen_at,
             last_seen_at=row.last_seen_at,
             source_post_id=row.source_post_id,

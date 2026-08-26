@@ -22,3 +22,11 @@ PySocks>=1.7
 pgvector>=0.3
 sentence-transformers>=3.0
 numpy>=1.26
+# Лемматизация лемм перед сохранением в словарь (см. app/application/services/content/lemmatizer/) —
+# тот же стек, что в референсных ноутбуках: spaCy+germalemma для немецкого, Stanza для английского,
+# spaCy для русского (аналог немецкого — готового примера для ru не было).
+spacy>=3.8,<3.9
+https://github.com/explosion/spacy-models/releases/download/de_core_news_sm-3.8.0/de_core_news_sm-3.8.0-py3-none-any.whl
+https://github.com/explosion/spacy-models/releases/download/ru_core_news_sm-3.8.0/ru_core_news_sm-3.8.0-py3-none-any.whl
+germalemma>=0.1
+stanza>=1.8

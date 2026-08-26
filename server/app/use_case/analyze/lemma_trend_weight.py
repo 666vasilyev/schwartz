@@ -10,12 +10,14 @@ lemma_llm_extractor.assign_weights_to_lemmas) и возвращаются вес
 
 Лемма не обязана быть из /lemma/trend-candidates — эндпоинт просто размечает
 любое переданное слово/словосочетание тем же способом, каким размечались бы
-кандидаты трендов.
+кандидаты трендов. Перед вызовом LLM лемма приводится к начальной форме (см.
+app/application/services/content/lemmatizer/) — так же, как и в /lemma/append.
 """
 from __future__ import annotations
 
 from app.application.services.content.lemma_llm_extractor import assign_weights_to_lemmas
 from app.application.services.content.lemma_scorer import LemmaLang
+from app.application.services.content.lemmatizer import lemmatize
 from app.presentation.schemas.analysis import NewLemmaItem
 
 
@@ -26,6 +28,7 @@ async def execute(
     provider: str | None = None,
     model: str | None = None,
 ) -> NewLemmaItem:
-    results = await assign_weights_to_lemmas([lemma], lang, provider=provider, model=model)
+    normalized = lemmatize(lemma, lang)
+    results = await assign_weights_to_lemmas([normalized], lang, provider=provider, model=model)
     item = results[0]
     return NewLemmaItem(lemma=item["lemma"], weights=item["weights"], category=item["category"])

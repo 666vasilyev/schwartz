@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     # Сколько постов считать за один вызов encode(); подбирается под RAM/CPU
     embedding_batch_size: int = 32
 
+    # ── Лемматизация (см. app/application/services/content/lemmatizer/) ────
+    # Директория с ресурсами Stanza (модель en) — смонтирована как volume
+    # (см. docker-compose.yml), чтобы модель скачивалась один раз и дальше
+    # переживала пересборки образа (offline), как HF_HOME для sentence-transformers.
+    stanza_resources_dir: str = Field(default="/cache/stanza", alias="STANZA_RESOURCES_DIR")
+
     # Порог cosine similarity для отнесения поста к существующему сюжету.
     # 1.0 — идентично, 0.0 — ортогонально. 0.78–0.85 — типовой диапазон для новостей.
     cluster_similarity_threshold: float = 0.82

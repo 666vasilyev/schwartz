@@ -20,10 +20,12 @@ services:
       HF_HOME: /cache/huggingface
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
+      STANZA_RESOURCES_DIR: /cache/stanza
     extra_hosts:
       - "host-gateway:host-gateway"
     volumes:
       - hf_cache:/cache/huggingface
+      - stanza_cache:/cache/stanza
     ports:
       - "8001:8000"
     depends_on:
@@ -69,3 +71,4 @@ services:
 
 volumes:
   hf_cache:
+  stanza_cache:

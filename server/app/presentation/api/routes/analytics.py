@@ -2,11 +2,15 @@
 Analytics API — /api/v1/analytics
 
 Питает страницу "Аналитика":
-  GET /posts/stats    — статистика собранных постов (24ч / 7д / 30д / всего)
-  GET /posts/daily    — динамика: собранные посты по дням (для графика)
-  GET /sources/counts — количество источников СМИ (всего + по статусу/типу)
-  GET /sources/top    — топ источников по числу собранных постов за период
-                        (собственное предложение, см. use_case/analytics/top_sources.py)
+  GET /posts/stats     — статистика собранных постов (24ч / 7д / 30д / всего)
+  GET /posts/daily     — динамика: собранные посты по дням (для графика)
+  GET /sources/counts  — количество источников СМИ (всего + по статусу/типу)
+  GET /sources/top     — топ источников по числу собранных постов за период
+                         (собственное предложение, см. use_case/analytics/top_sources.py)
+  GET /lemma/baseline  — эталонные ЦКМ сразу по всем словарям
+                         (см. use_case/analytics/lemma_baseline.py)
+  GET /lemma/counts    — частотная статистика лемм сразу по всем словарям
+                         (см. use_case/analytics/lemma_counts.py)
 """
 from __future__ import annotations
 
@@ -17,11 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.analytics import (
+    LemmaBaselineAllResponse,
+    LemmaCountsAllResponse,
     PostsCollectedStatsResponse,
     PostsDailyResponse,
     SourceCountsResponse,
     TopSourcesResponse,
 )
+from app.use_case.analytics import lemma_baseline as lemma_baseline_uc
+from app.use_case.analytics import lemma_counts as lemma_counts_uc
 from app.use_case.analytics import posts_daily as posts_daily_uc
 from app.use_case.analytics import posts_stats as posts_stats_uc
 from app.use_case.analytics import sources_counts as sources_counts_uc
@@ -79,3 +87,21 @@ async def get_top_sources(
     db: AsyncSession = Depends(get_session),
 ) -> TopSourcesResponse:
     return await top_sources_uc.execute(db, limit=limit, date_from=date_from, date_to=date_to)
+
+
+@router.get(
+    "/lemma/baseline",
+    response_model=LemmaBaselineAllResponse,
+    summary="Эталонные ЦКМ сразу по всем словарям",
+)
+def get_lemma_baseline_all() -> LemmaBaselineAllResponse:
+    return lemma_baseline_uc.execute()
+
+
+@router.get(
+    "/lemma/counts",
+    response_model=LemmaCountsAllResponse,
+    summary="Частотная статистика лемм (кол-во лемм на параметр ЦКМ) сразу по всем словарям",
+)
+def get_lemma_counts_all() -> LemmaCountsAllResponse:
+    return lemma_counts_uc.execute()

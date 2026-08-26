@@ -590,18 +590,27 @@ class MergedLangNotWritableError(ValueError):
     """*_merged языки — вычисляемая комбинация двух словарей, своего CSV-файла нет."""
 
 
-def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, int, list[str]]:
+def append_lemmas(
+    lang: LemmaLang, items: list[dict], *, overwrite_existing: bool = True
+) -> tuple[int, int, list[str], list[str]]:
     """
-    Добавить новые и обновить уже существующие леммы в CSV-словаре `lang` (upsert).
+    Добавить новые и (опционально) обновить уже существующие леммы в
+    CSV-словаре `lang` (upsert).
 
     items: [{"lemma": str, "weights": {col: float, ...}, "category": str}, ...]
-    Возвращает (сколько_добавлено, сколько_обновлено, леммы_пропущенные_как_дубль_внутри_запроса).
+    Возвращает (добавлено, обновлено, дубли_внутри_запроса, уже_в_словаре).
 
-    Если лемма уже есть в словаре — её старая строка удаляется и заменяется новой
-    (а не молча игнорируется, как было раньше). Повтор одной и той же леммы дважды
-    в одном вызове — второе вхождение пропускается (skipped), выигрывает первое.
-    После записи кэш индекса сбрасывается — следующий score_text/extract_new_lemmas
-    увидит обновлённые значения.
+    overwrite_existing=True (по умолчанию, обратная совместимость со старым
+    поведением) — если лемма уже есть в словаре, её старая строка удаляется и
+    заменяется новой. overwrite_existing=False — существующие леммы вообще не
+    трогаются (не перезаписываются), попадают в отдельный список
+    "уже_в_словаре" и не пишутся в CSV — так безопаснее для потоков вроде
+    буфера лемм, где не хотим тихо затереть уже прокуренную ЦКМ-разметку.
+
+    Повтор одной и той же леммы дважды в одном вызове — второе вхождение
+    пропускается (дубли_внутри_запроса), выигрывает первое. После записи кэш
+    индекса сбрасывается — следующий score_text/extract_new_lemmas увидит
+    обновлённые значения.
     """
     if lang in _MERGED_COMPONENTS:
         raise MergedLangNotWritableError(
@@ -612,6 +621,7 @@ def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, int, list[st
     already = existing_lemmas(lang)
 
     skipped: list[str] = []
+    already_in_dict: list[str] = []
     new_lines: list[str] = []
     upsert_keys: set[str] = set()
 
@@ -623,6 +633,9 @@ def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, int, list[st
         if key in upsert_keys:
             skipped.append(lemma_raw)
             continue
+        if not overwrite_existing and key in already:
+            already_in_dict.append(lemma_raw)
+            continue
         upsert_keys.add(key)
 
         weights = item.get("weights") or {}
@@ -631,7 +644,7 @@ def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, int, list[st
         new_lines.append(";".join([lemma_raw, *values, category]))
 
     if not new_lines:
-        return 0, 0, skipped
+        return 0, 0, skipped, already_in_dict
 
     updated_keys = upsert_keys & already
     added_count = len(upsert_keys) - len(updated_keys)
@@ -669,5 +682,6 @@ def append_lemmas(lang: LemmaLang, items: list[dict]) -> tuple[int, int, list[st
         added=added_count,
         updated=len(updated_keys),
         skipped=len(skipped),
+        already_in_dict=len(already_in_dict),
     )
-    return added_count, len(updated_keys), skipped
+    return added_count, len(updated_keys), skipped, already_in_dict

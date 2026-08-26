@@ -41,15 +41,10 @@ class LemmaCategoriesRequest(BaseModel):
 
 
 class LemmaBaselineResponse(BaseModel):
+    """Эталонное распределение ЦКМ словаря. Частотная статистика — отдельно, см. LemmaParameterCountsResponse."""
+
     label: str
     schwartz_values: dict[str, float]
-    counts: dict[str, int] = Field(
-        default_factory=dict,
-        description=(
-            "Ключ — параметр ЦКМ (см. CSV_COLUMNS), значение — сколько лемм словаря имеют по нему "
-            "ненулевой вес (та же величина, что и в /lemma/counts, показана рядом с эталонным baseline)"
-        ),
-    )
 
 
 class LemmaExtractRequest(BaseModel):
@@ -119,10 +114,23 @@ class LemmaAppendResponse(BaseModel):
 
     lang: LemmaLang
     added: int = Field(description="Сколько лемм было новыми и дописано в конец CSV")
-    updated: int = Field(0, description="Сколько лемм уже было в словаре — их старые строки заменены новыми значениями")
+    updated: int = Field(
+        0,
+        description=(
+            "Сколько лемм уже было в словаре и были перезаписаны новыми значениями "
+            "(только при overwrite_existing=true, по умолчанию)"
+        ),
+    )
     skipped_duplicates: list[str] = Field(
         default_factory=list,
         description="Леммы, пропущенные как повтор внутри одного запроса (одна и та же лемма дважды)",
+    )
+    already_in_dictionary: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Леммы, уже существовавшие в словаре и НЕ перезаписанные "
+            "(только при overwrite_existing=false)"
+        ),
     )
 
 

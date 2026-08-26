@@ -723,8 +723,14 @@ class LemmaBufferEntry(Base):
     Лемма/словосочетание, выделенное пользователем на фронте при чтении
     постов/трендов — персональный кандидат для последующего добавления в
     словарь через /lemma/append. Одна строка на (user_id, lemma); повторное
-    выделение той же леммы инкрементирует times_selected вместо дубля —
-    сигнал важности, аналогичный weeks_matched в /lemma/trend-candidates.
+    выделение той же леммы не создаёт дубль и не двигает порядок — буфер
+    сортируется по first_seen_at (первая выделенная лемма — первая в списке).
+
+    weights/category — nullable, заполняются отдельно от add (action=set_weights
+    в POST /lemma/buffer), после LLM-генерации через
+    GET /lemma/trend-candidates/{lemma}/weights или ручного ввода на фронте.
+    Когда заполнены — {lemma, weights, category} уже в формате, который
+    принимает /lemma/append.
 
     Без своего lang: язык словаря, относительно которого лемма уже есть/в
     чёрном списке, выбирается на этапе просмотра буфера (GET .../buffer?lang=),
@@ -742,7 +748,8 @@ class LemmaBufferEntry(Base):
     )
     lemma: Mapped[str] = mapped_column(String(255), nullable=False)
     raw_text: Mapped[str] = mapped_column(String(255), nullable=False)
-    times_selected: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    weights: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    category: Mapped[str | None] = mapped_column(String(512), nullable=True)
     source_post_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("posts.id", ondelete="SET NULL"), nullable=True
     )

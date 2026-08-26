@@ -5,6 +5,9 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
+from app.application.services.content.lemma_scorer import LemmaLang
+from app.presentation.schemas.analysis import LemmaBaselineResponse, LemmaParameterCountsResponse
+
 
 class PostsCollectedStatsResponse(BaseModel):
     """
@@ -63,3 +66,31 @@ class TopSourcesResponse(BaseModel):
     date_from: date | None = Field(default=None, description="Начало диапазона (по created_at); null — за всё время")
     date_to: date | None = Field(default=None, description="Конец диапазона (по created_at); null — за всё время")
     items: list[TopSourceItem] = Field(default_factory=list, description="Отсортировано по убыванию posts_count")
+
+
+class LemmaBaselineItem(LemmaBaselineResponse):
+    """Эталонное распределение ЦКМ одного словаря, плюс сам lang."""
+
+    lang: LemmaLang
+
+
+class LemmaBaselineAllResponse(BaseModel):
+    """Эталонные ЦКМ сразу по всем словарям (без частотной статистики — см. LemmaCountsAllResponse)."""
+
+    dictionaries: list[LemmaBaselineItem] = Field(
+        default_factory=list,
+        description="По одному элементу на каждый словарь: ru, ru_un, ru_merged, usa, usa_un, usa_merged, frg",
+    )
+
+
+class LemmaCountsAllResponse(BaseModel):
+    """
+    Частотная статистика лемм (сколько лемм словаря имеют ненулевой вес по
+    каждому параметру ЦКМ) сразу по всем словарям — отдельный экран
+    дашборда, не привязан к эталонным весам baseline.
+    """
+
+    dictionaries: list[LemmaParameterCountsResponse] = Field(
+        default_factory=list,
+        description="По одному элементу на каждый словарь: ru, ru_un, ru_merged, usa, usa_un, usa_merged, frg",
+    )

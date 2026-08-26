@@ -21,6 +21,11 @@ lazy-load через use_case/analyze/lemma_trend_weight.py (GET
 
 Леммы из чёрного списка (см. lemma_scorer.is_blacklisted / /lemma/blacklist)
 исключаются из подсчёта частот целиком — не участвуют ни в одной неделе.
+
+Частоты считаются по сырым словоформам, а к начальной форме (lemmatizer/)
+кандидаты приводятся уже после подсчёта, с агрегацией совпавших после
+лемматизации словоформ — так итоговый список не задваивает одно и то же
+понятие в разных формах.
 """
 from __future__ import annotations
 
@@ -31,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.content.lemma_frequency import top_frequent_lemmas
 from app.application.services.content.lemma_scorer import LemmaLang, existing_lemmas
+from app.application.services.content.lemmatizer import lemmatize
 from app.infrastructure.repositories import list_posts_in_clusters, list_trending_combined
 from app.presentation.schemas.analysis import (
     LemmaTrendCandidateItem,
@@ -98,12 +104,22 @@ async def execute(
             match_counts[lemma] += 1
             total_occurrences[lemma] += cnt
 
+    # Приводим к начальной форме (см. lemmatizer/) и агрегируем возможные
+    # коллизии — разные словоформы одного понятия схлопываются в одну лемму —
+    # до сортировки/фильтра по min_weeks_match.
+    lemmatized_match_counts: Counter = Counter()
+    lemmatized_total_occurrences: Counter = Counter()
+    for raw_lemma, matched in match_counts.items():
+        norm = lemmatize(raw_lemma, lang)
+        lemmatized_match_counts[norm] += matched
+        lemmatized_total_occurrences[norm] += total_occurrences[raw_lemma]
+
     known = existing_lemmas(lang)
     ordered_lemmas = [
         lemma
         for lemma, matched in sorted(
-            match_counts.items(),
-            key=lambda kv: (-kv[1], -total_occurrences[kv[0]], kv[0]),
+            lemmatized_match_counts.items(),
+            key=lambda kv: (-kv[1], -lemmatized_total_occurrences[kv[0]], kv[0]),
         )
         if matched >= min_weeks_match
     ]
@@ -111,8 +127,8 @@ async def execute(
     candidates = [
         LemmaTrendCandidateItem(
             lemma=lemma,
-            weeks_matched=match_counts[lemma],
-            total_occurrences=total_occurrences[lemma],
+            weeks_matched=lemmatized_match_counts[lemma],
+            total_occurrences=lemmatized_total_occurrences[lemma],
             in_dictionary=lemma in known,
         )
         for lemma in ordered_lemmas
