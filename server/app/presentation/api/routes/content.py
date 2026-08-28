@@ -439,8 +439,17 @@ def list_lemma_csv(
     response_model=LemmaBlacklistListResponse,
     summary="Просмотреть чёрный список лемм (общий на все языки)",
 )
-def get_lemma_blacklist() -> LemmaBlacklistListResponse:
-    return LemmaBlacklistListResponse(lemmas=lemma_scorer.list_blacklist())
+def get_lemma_blacklist(
+    lang: LemmaLang | None = Query(
+        None,
+        description=(
+            "DEPRECATED: список общий на все языки, параметр ничего не "
+            "фильтрует — принимается только чтобы эхом вернуть его в ответе "
+            "для старого фронта."
+        ),
+    ),
+) -> LemmaBlacklistListResponse:
+    return LemmaBlacklistListResponse(lang=lang, lemmas=lemma_scorer.list_blacklist())
 
 
 @router.post(
@@ -450,19 +459,27 @@ def get_lemma_blacklist() -> LemmaBlacklistListResponse:
 )
 def lemma_blacklist_action(
     body: LemmaBlacklistActionRequest,
+    lang: LemmaLang | None = Query(
+        None,
+        description=(
+            "DEPRECATED: пишет в общий список независимо от значения, "
+            "принимается только чтобы эхом вернуть его в ответе для старого "
+            "фронта."
+        ),
+    ),
 ) -> LemmaBlacklistActionResponse:
     """
     Единая ручка вместо раздельных /blacklist/add и /blacklist/remove — тот же
     паттерн, что и POST /sources/{id}/action (SourceActionRequest.action).
-    Список один общий на все языки словаря — параметра `lang` больше нет.
+    Список один общий на все языки словаря — `lang` больше ни на что не влияет.
     """
     if body.action == "add":
         added, already_present = lemma_scorer.add_to_blacklist(body.lemmas)
         return LemmaBlacklistActionResponse(
-            action=body.action, added=added, already_present=already_present,
+            lang=lang, action=body.action, added=added, already_present=already_present,
         )
     removed = lemma_scorer.remove_from_blacklist(body.lemmas)
-    return LemmaBlacklistActionResponse(action=body.action, removed=removed)
+    return LemmaBlacklistActionResponse(lang=lang, action=body.action, removed=removed)
 
 
 @router.get(

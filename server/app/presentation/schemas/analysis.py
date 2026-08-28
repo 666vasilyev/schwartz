@@ -147,6 +147,14 @@ class LemmaBlacklistActionRequest(BaseModel):
 class LemmaBlacklistActionResponse(BaseModel):
     """Ответ на /lemma/blacklist. Заполняется только часть полей, соответствующая action."""
 
+    lang: LemmaLang | None = Field(
+        None,
+        description=(
+            "DEPRECATED, только для обратной совместимости фронта: эхо параметра "
+            "?lang=, если он был передан в запросе. Список общий на все языки и "
+            "от lang не зависит — поле ничего не фильтрует."
+        ),
+    )
     action: Literal["add", "remove"]
     added: int | None = Field(None, description="Сколько лемм было новыми и дописано (только action=add)")
     already_present: list[str] = Field(
@@ -158,6 +166,14 @@ class LemmaBlacklistActionResponse(BaseModel):
 class LemmaBlacklistListResponse(BaseModel):
     """Чёрный список лемм — общий на все языки словаря."""
 
+    lang: LemmaLang | None = Field(
+        None,
+        description=(
+            "DEPRECATED, только для обратной совместимости фронта: эхо параметра "
+            "?lang=, если он был передан в запросе. Список общий на все языки и "
+            "от lang не зависит — поле ничего не фильтрует."
+        ),
+    )
     lemmas: list[str] = Field(default_factory=list, description="Чёрный список лемм, отсортирован по алфавиту")
 
 
