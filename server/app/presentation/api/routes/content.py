@@ -437,37 +437,32 @@ def list_lemma_csv(
 @router.get(
     "/lemma/blacklist",
     response_model=LemmaBlacklistListResponse,
-    summary="Просмотреть чёрный список лемм словаря",
+    summary="Просмотреть чёрный список лемм (общий на все языки)",
 )
-def get_lemma_blacklist(
-    lang: LemmaLang = Query(..., description="Словарь: ru, ru_un, ru_merged, usa, usa_un, usa_merged, frg"),
-) -> LemmaBlacklistListResponse:
-    return LemmaBlacklistListResponse(lang=lang, lemmas=lemma_scorer.list_blacklist(lang))
+def get_lemma_blacklist() -> LemmaBlacklistListResponse:
+    return LemmaBlacklistListResponse(lemmas=lemma_scorer.list_blacklist())
 
 
 @router.post(
     "/lemma/blacklist",
     response_model=LemmaBlacklistActionResponse,
-    summary="Добавить/удалить леммы в чёрном списке (action=add|remove) — исключаются из LLM-генерации и поиска трендов",
+    summary="Добавить/удалить леммы в чёрном списке (action=add|remove, общий на все языки) — исключаются из LLM-генерации и поиска трендов",
 )
 def lemma_blacklist_action(
     body: LemmaBlacklistActionRequest,
-    lang: LemmaLang = Query(..., description="Словарь для записи: ru, ru_un, usa, usa_un, frg (merged — read-only)"),
 ) -> LemmaBlacklistActionResponse:
     """
     Единая ручка вместо раздельных /blacklist/add и /blacklist/remove — тот же
     паттерн, что и POST /sources/{id}/action (SourceActionRequest.action).
+    Список один общий на все языки словаря — параметра `lang` больше нет.
     """
-    try:
-        if body.action == "add":
-            added, already_present = lemma_scorer.add_to_blacklist(lang, body.lemmas)
-            return LemmaBlacklistActionResponse(
-                lang=lang, action=body.action, added=added, already_present=already_present,
-            )
-        removed = lemma_scorer.remove_from_blacklist(lang, body.lemmas)
-        return LemmaBlacklistActionResponse(lang=lang, action=body.action, removed=removed)
-    except lemma_scorer.MergedLangNotWritableError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    if body.action == "add":
+        added, already_present = lemma_scorer.add_to_blacklist(body.lemmas)
+        return LemmaBlacklistActionResponse(
+            action=body.action, added=added, already_present=already_present,
+        )
+    removed = lemma_scorer.remove_from_blacklist(body.lemmas)
+    return LemmaBlacklistActionResponse(action=body.action, removed=removed)
 
 
 @router.get(
@@ -631,10 +626,11 @@ async def get_lemma_buffer(
 ) -> LemmaBufferListResponse:
     """
     Отсортировано по first_seen_at (первая выделенная лемма — первая в
-    списке). in_dictionary/in_blacklist считаются относительно словаря `lang`
-    — сам буфер языка не хранит (лемма может пригодиться сразу для нескольких
-    словарей). Когда у элемента заполнены weights/category (см.
-    action=set_weights) — он уже в формате /lemma/append.
+    списке). in_dictionary считается относительно словаря `lang` — сам буфер
+    языка не хранит (лемма может пригодиться сразу для нескольких словарей).
+    in_blacklist — общий чёрный список, от `lang` не зависит. Когда у элемента
+    заполнены weights/category (см. action=set_weights) — он уже в формате
+    /lemma/append.
     """
     rows, total = await list_buffer_entries(
         db, user_id=current_user.id, search=search, limit=limit, offset=offset
@@ -651,7 +647,7 @@ async def get_lemma_buffer(
             source_post_id=row.source_post_id,
             source_cluster_id=row.source_cluster_id,
             in_dictionary=row.lemma in known,
-            in_blacklist=lemma_scorer.is_blacklisted(row.lemma, lang),
+            in_blacklist=lemma_scorer.is_blacklisted(row.lemma),
         )
         for row in rows
     ]

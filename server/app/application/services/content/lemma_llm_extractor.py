@@ -285,7 +285,7 @@ async def extract_new_lemmas(
     _, matched, _ = score_text(text, lang)
     # Чёрный список объединяем со словарём: леммы из него не должны предлагаться
     # LLM повторно (как и уже существующие в словаре), см. /lemma/blacklist.
-    already = existing_lemmas(lang) | set(list_blacklist(lang))
+    already = existing_lemmas(lang) | set(list_blacklist())
     valid_categories = list_categories(lang)
 
     t = (text or "").strip()[:8000]

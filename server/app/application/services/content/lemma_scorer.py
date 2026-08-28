@@ -429,62 +429,92 @@ def count_lemmas_by_parameter(lang: LemmaLang) -> dict[str, int]:
     return counts
 
 
-_BLACKLIST_FILENAMES: dict[LemmaLang, str] = {
-    LemmaLang.ru: "blacklist_ru.csv",
-    LemmaLang.ru_un: "blacklist_ru_un.csv",
-    LemmaLang.usa: "blacklist_usa.csv",
-    LemmaLang.usa_un: "blacklist_usa_un.csv",
-    LemmaLang.frg: "blacklist_frg.csv",
-}
+_BLACKLIST_FILENAME = "blacklist.csv"
+
+# Раньше список был отдельным файлом на каждый базовый язык словаря — теперь
+# список общий на все языки (см. _migrate_legacy_blacklists). Старые имена
+# нужны только для одноразовой миграции их содержимого в общий файл.
+_LEGACY_BLACKLIST_FILENAMES: tuple[str, ...] = (
+    "blacklist_ru.csv",
+    "blacklist_ru_un.csv",
+    "blacklist_usa.csv",
+    "blacklist_usa_un.csv",
+    "blacklist_frg.csv",
+)
 
 
-def _find_blacklist_path(lang: LemmaLang, *, create: bool = False) -> Path:
+def _find_blacklist_path(*, create: bool = False) -> Path:
     """
-    Как _find_csv, но для файла чёрного списка лемм: список лежит в отдельном
-    файле per-lang (server/lemma/blacklist_{lang}.csv, одна лемма на строку),
-    т.к. для разных базовых языков словаря (ru/usa/frg) это разные слова.
+    Как _find_csv, но для файла чёрного списка лемм: один общий файл на все
+    языки словаря (server/lemma/blacklist.csv, одна лемма на строку).
 
     create=True — если файл ещё нигде не найден, создать пустой в первой
     существующей директории из _LEMMA_DIRS (для первого add_to_blacklist).
     """
-    return _find_in_lemma_dirs(_BLACKLIST_FILENAMES[lang], create=create)
+    return _find_in_lemma_dirs(_BLACKLIST_FILENAME, create=create)
 
 
-@lru_cache(maxsize=None)
-def _load_blacklist_raw(lang: LemmaLang) -> frozenset[str]:
-    """Чистый (после _clean_lemma) набор лемм чёрного списка ОДНОГО базового lang (без merge)."""
-    try:
-        path = _find_blacklist_path(lang)
-    except FileNotFoundError:
+def _migrate_legacy_blacklists() -> frozenset[str]:
+    """
+    Одноразовая миграция: до этого леммы чёрного списка хранились в отдельных
+    файлах per-lang (blacklist_ru.csv, blacklist_usa.csv и т.д.). Список стал
+    общим на все языки — при первом обращении после обновления, если единого
+    blacklist.csv ещё нет, но старые per-lang файлы есть, объединяем их
+    содержимое (с дедупликацией) в новый общий файл. Старые файлы не
+    удаляются (на случай отката), но больше не читаются ни при каком вызове.
+    """
+    merged: set[str] = set()
+    found_any = False
+    for filename in _LEGACY_BLACKLIST_FILENAMES:
+        try:
+            path = _find_in_lemma_dirs(filename)
+        except FileNotFoundError:
+            continue
+        found_any = True
+        encoding = _detect_encoding(path)
+        with open(path, encoding=encoding, newline="") as fh:
+            lines = fh.read().splitlines()
+        merged.update(_clean_lemma(line) for line in lines if line.strip())
+
+    if not found_any:
         return frozenset()
+
+    new_path = _find_in_lemma_dirs(_BLACKLIST_FILENAME, create=True)
+    with open(new_path, "w", encoding="utf-8", newline="") as fh:
+        for lemma in sorted(merged):
+            fh.write(lemma + "\n")
+    logger.info(
+        "lemma_blacklist_migrated_to_common",
+        merged_count=len(merged),
+        sources=list(_LEGACY_BLACKLIST_FILENAMES),
+    )
+    return frozenset(merged)
+
+
+@lru_cache(maxsize=1)
+def _load_blacklist_raw() -> frozenset[str]:
+    """Чистый (после _clean_lemma) набор лемм единого чёрного списка (общего на все языки)."""
+    try:
+        path = _find_blacklist_path()
+    except FileNotFoundError:
+        return _migrate_legacy_blacklists()
     encoding = _detect_encoding(path)
     with open(path, encoding=encoding, newline="") as fh:
         lines = fh.read().splitlines()
     return frozenset(_clean_lemma(line) for line in lines if line.strip())
 
 
-def list_blacklist(lang: LemmaLang) -> list[str]:
-    """
-    Чёрный список лемм для `lang`, отсортированный по алфавиту. Для merged-языков
-    (ru_merged/usa_merged) — объединение чёрных списков обеих компонент (сами
-    merged не имеют своего файла, как и в append_lemmas/_load_index).
-    """
-    if lang in _MERGED_COMPONENTS:
-        lang_a, lang_b = _MERGED_COMPONENTS[lang]
-        combined = _load_blacklist_raw(lang_a) | _load_blacklist_raw(lang_b)
-        return sorted(combined)
-    return sorted(_load_blacklist_raw(lang))
+def list_blacklist() -> list[str]:
+    """Общий (на все языки) чёрный список лемм, отсортированный по алфавиту."""
+    return sorted(_load_blacklist_raw())
 
 
-def is_blacklisted(lemma: str, lang: LemmaLang) -> bool:
-    """Есть ли лемма (после нормализации) в чёрном списке `lang`."""
+def is_blacklisted(lemma: str) -> bool:
+    """Есть ли лемма (после нормализации) в общем чёрном списке."""
     key = _clean_lemma(lemma)
     if not key:
         return False
-    if lang in _MERGED_COMPONENTS:
-        lang_a, lang_b = _MERGED_COMPONENTS[lang]
-        return key in _load_blacklist_raw(lang_a) or key in _load_blacklist_raw(lang_b)
-    return key in _load_blacklist_raw(lang)
+    return key in _load_blacklist_raw()
 
 
 def _append_lines(path: Path, encoding: str, lines: list[str]) -> None:
@@ -508,16 +538,12 @@ def _append_lines(path: Path, encoding: str, lines: list[str]) -> None:
         fh.write("\n".join(lines) + "\n")
 
 
-def add_to_blacklist(lang: LemmaLang, lemmas: list[str]) -> tuple[int, list[str]]:
+def add_to_blacklist(lemmas: list[str]) -> tuple[int, list[str]]:
     """
-    Добавить леммы в чёрный список `lang` (append, без дублей).
+    Добавить леммы в общий чёрный список (append, без дублей).
     Возвращает (сколько добавлено, какие уже были в списке — эхом как передали).
     """
-    if lang in _MERGED_COMPONENTS:
-        raise MergedLangNotWritableError(
-            f"'{lang.value}' — вычисляемый merged-словарь, свой чёрный список недоступен для записи"
-        )
-    existing = _load_blacklist_raw(lang)
+    existing = _load_blacklist_raw()
     keys_seen: set[str] = set(existing)
     already: list[str] = []
     new_keys: list[str] = []
@@ -531,26 +557,22 @@ def add_to_blacklist(lang: LemmaLang, lemmas: list[str]) -> tuple[int, list[str]
         new_keys.append(key)
 
     if new_keys:
-        path = _find_blacklist_path(lang, create=True)
+        path = _find_blacklist_path(create=True)
         has_content = path.exists() and path.stat().st_size > 0
         encoding = _detect_encoding(path) if has_content else "utf-8"
         _append_lines(path, encoding, new_keys)
         _load_blacklist_raw.cache_clear()
-        logger.info("lemma_blacklist_appended", lang=lang.value, added=len(new_keys))
+        logger.info("lemma_blacklist_appended", added=len(new_keys))
 
     return len(new_keys), already
 
 
-def remove_from_blacklist(lang: LemmaLang, lemmas: list[str]) -> int:
-    """Удалить леммы из чёрного списка `lang`. Возвращает, сколько реально было удалено."""
-    if lang in _MERGED_COMPONENTS:
-        raise MergedLangNotWritableError(
-            f"'{lang.value}' — вычисляемый merged-словарь, свой чёрный список недоступен для записи"
-        )
+def remove_from_blacklist(lemmas: list[str]) -> int:
+    """Удалить леммы из общего чёрного списка. Возвращает, сколько реально было удалено."""
     to_remove = {_clean_lemma(str(x)) for x in lemmas}
     to_remove.discard("")
     try:
-        path = _find_blacklist_path(lang)
+        path = _find_blacklist_path()
     except FileNotFoundError:
         return 0
 
@@ -564,7 +586,7 @@ def remove_from_blacklist(lang: LemmaLang, lemmas: list[str]) -> int:
             for line in kept:
                 fh.write(line + "\n")
         _load_blacklist_raw.cache_clear()
-        logger.info("lemma_blacklist_removed", lang=lang.value, removed=removed)
+        logger.info("lemma_blacklist_removed", removed=removed)
     return removed
 
 

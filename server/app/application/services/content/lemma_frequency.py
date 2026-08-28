@@ -44,9 +44,9 @@ def top_frequent_lemmas(
 ) -> list[tuple[str, int]]:
     """
     (лемма, частота) по убыванию частоты (при равенстве — по алфавиту),
-    леммы из чёрного словаря `lang` исключены целиком.
+    леммы из общего чёрного списка исключены целиком.
     """
     counts = word_frequency(texts)
-    filtered = {word: cnt for word, cnt in counts.items() if not is_blacklisted(word, lang)}
+    filtered = {word: cnt for word, cnt in counts.items() if not is_blacklisted(word)}
     ranked = sorted(filtered.items(), key=lambda kv: (-kv[1], kv[0]))
     return ranked[:top_n]
