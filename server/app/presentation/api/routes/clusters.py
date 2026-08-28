@@ -125,7 +125,7 @@ async def trending_endpoint(
     ),
     lemma_lang: LemmaLang = Query(
         LemmaLang.ru,
-        description="Словарь для new_lemmas (только чёрный список — сами леммы не скорятся): ru, ru_un, usa, usa_un, frg",
+        description="Словарь для new_lemmas (только чёрный список — сами леммы не скорятся): ru, ru_un, ru_ch, usa, usa_un, usa_ch, frg",
     ),
     lemma_top_n: int = Query(
         10, ge=0, le=50, description="Сколько самых частых лемм на кластер отдавать в new_lemmas (0 — не считать)"

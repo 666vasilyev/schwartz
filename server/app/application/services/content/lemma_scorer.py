@@ -32,9 +32,11 @@ CSV_COLUMNS: tuple[str, ...] = (
 class LemmaLang(str, Enum):
     ru = "ru"
     ru_un = "ru_un"
+    ru_ch = "ru_ch"
     ru_merged = "ru_merged"
     usa = "usa"
     usa_un = "usa_un"
+    usa_ch = "usa_ch"
     usa_merged = "usa_merged"
     frg = "frg"
 
@@ -42,15 +44,18 @@ class LemmaLang(str, Enum):
 _CSV_FILENAMES: dict[LemmaLang, str] = {
     LemmaLang.ru: "ru.csv",
     LemmaLang.ru_un: "ru_un.csv",
+    LemmaLang.ru_ch: "ru_ch.csv",
     LemmaLang.usa: "usa.csv",
     LemmaLang.usa_un: "usa_un.csv",
+    LemmaLang.usa_ch: "usa_ch.csv",
     LemmaLang.frg: "frg.csv",
 }
 
-# Merged langs combine two base dictionaries; duplicate lemmas get averaged weights.
-_MERGED_COMPONENTS: dict[LemmaLang, tuple[LemmaLang, LemmaLang]] = {
-    LemmaLang.ru_merged: (LemmaLang.ru, LemmaLang.ru_un),
-    LemmaLang.usa_merged: (LemmaLang.usa, LemmaLang.usa_un),
+# Merged langs combine N base dictionaries; duplicate lemmas get averaged weights
+# (pairwise, folded left-to-right over all components — see _load_index).
+_MERGED_COMPONENTS: dict[LemmaLang, tuple[LemmaLang, ...]] = {
+    LemmaLang.ru_merged: (LemmaLang.ru, LemmaLang.ru_un, LemmaLang.ru_ch),
+    LemmaLang.usa_merged: (LemmaLang.usa, LemmaLang.usa_un, LemmaLang.usa_ch),
 }
 
 _LEMMA_DIRS: tuple[Path, ...] = (
@@ -150,17 +155,17 @@ def _merge_indexes(idx_a: _Index, idx_b: _Index) -> _Index:
 
 @lru_cache(maxsize=16)
 def _load_index(lang: LemmaLang) -> _Index:
-    # Merged langs: combine two base indexes
+    # Merged langs: combine N base indexes (folded pairwise, left-to-right)
     if lang in _MERGED_COMPONENTS:
-        lang_a, lang_b = _MERGED_COMPONENTS[lang]
-        idx_a = _load_index(lang_a)
-        idx_b = _load_index(lang_b)
-        merged = _merge_indexes(idx_a, idx_b)
+        components = _MERGED_COMPONENTS[lang]
+        merged = _load_index(components[0])
+        for component in components[1:]:
+            merged = _merge_indexes(merged, _load_index(component))
         single, phrase, _, _ = merged
         logger.info(
             "lemma_index_merged",
             lang=lang.value,
-            components=[lang_a.value, lang_b.value],
+            components=[c.value for c in components],
             single=len(single),
             phrases=len(phrase),
         )

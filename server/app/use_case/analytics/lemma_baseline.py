@@ -1,6 +1,6 @@
 """
 GET /api/v1/analytics/lemma/baseline — эталонные ЦКМ сразу по всем словарям
-(ru, ru_un, ru_merged, usa, usa_un, usa_merged, frg) — одним запросом для
+(ru, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg) — одним запросом для
 страницы Аналитика. Частотная статистика — отдельно, см. lemma_counts.py
 (разные экраны дашборда).
 """

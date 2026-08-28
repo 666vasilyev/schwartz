@@ -74,7 +74,7 @@ router = APIRouter(prefix="/analyze", tags=["Content Analysis"], dependencies=[D
 
 # ── Общие Query-параметры (переиспользуются в нескольких ручках ниже, чтобы не
 #    держать одинаковый Query(...)/описание в 7 и 5 местах соответственно) ──
-_LANG_QUERY = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, usa, usa_un, frg")
+_LANG_QUERY = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, ru_ch, usa, usa_un, usa_ch, frg")
 _DATE_FROM_QUERY = Query(None, description="Начало диапазона (published_at >=)")
 _DATE_TO_QUERY = Query(None, description="Конец диапазона (published_at <=)")
 
@@ -85,7 +85,7 @@ _DATE_TO_QUERY = Query(None, description="Конец диапазона (publish
     summary="Только количество лемм словаря по каждому из 10 параметров ЦКМ",
 )
 def get_lemma_counts(
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, ru_merged, usa, usa_un, usa_merged, frg"),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg"),
 ) -> LemmaParameterCountsResponse:
     return LemmaParameterCountsResponse(lang=lang, counts=lemma_scorer.count_lemmas_by_parameter(lang))
 
@@ -218,7 +218,7 @@ async def lemma_categories_overview(
     ),
     lemma_lang: LemmaLang = Query(
         LemmaLang.ru,
-        description="Словарь для new_lemmas трендов (только чёрный список — сами леммы не скорятся): ru, ru_un, usa, usa_un, frg",
+        description="Словарь для new_lemmas трендов (только чёрный список — сами леммы не скорятся): ru, ru_un, ru_ch, usa, usa_un, usa_ch, frg",
     ),
     lemma_top_n: int = Query(
         10, ge=0, le=50, description="Сколько самых частых лемм на трендовый кластер отдавать в new_lemmas (0 — не считать)"
@@ -324,7 +324,7 @@ async def analyze_category_lemma_by_day(
 async def extract_lemma_candidates(
     body: LemmaExtractRequest,
     lang: LemmaLang = Query(
-        LemmaLang.ru, description="Словарь, с которым сверяем дубли: ru, ru_un, usa, usa_un, frg"
+        LemmaLang.ru, description="Словарь, с которым сверяем дубли: ru, ru_un, ru_ch, usa, usa_un, usa_ch, frg"
     ),
 ) -> LemmaExtractResponse:
     """
@@ -384,7 +384,7 @@ def _append_lemmas_to_csv(
 async def append_lemma_candidates(
     body: LemmaAppendRequest,
     lang: LemmaLang = Query(
-        ..., description="Словарь для записи: ru, ru_un, usa, usa_un, frg (merged — вычисляемые, только для чтения)"
+        ..., description="Словарь для записи: ru, ru_un, ru_ch, usa, usa_un, usa_ch, frg (merged — вычисляемые, только для чтения)"
     ),
     overwrite_existing: bool = Query(
         True,
@@ -418,7 +418,7 @@ async def append_lemma_candidates(
 )
 def list_lemma_csv(
     lang: LemmaLang = Query(
-        ..., description="Словарь: ru, ru_un, ru_merged, usa, usa_un, usa_merged, frg"
+        ..., description="Словарь: ru, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg"
     ),
     search: str | None = Query(None, description="Подстрока для фильтра по лемме (регистронезависимо)"),
     limit: int = Query(100, ge=1, le=1000, description="Сколько строк вернуть за один запрос"),

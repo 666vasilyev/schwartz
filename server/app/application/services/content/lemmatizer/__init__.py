@@ -5,8 +5,8 @@
 изолированном слове/словосочетании, как оно приходит в append/extract/
 trend-candidates, а не на целом тексте):
 
-  - ru, ru_un — spaCy ru_core_news_sm (см. lemmatizer/ru.py)
-  - usa, usa_un — Stanza (en) (см. lemmatizer/en.py)
+  - ru, ru_un, ru_ch — spaCy ru_core_news_sm (см. lemmatizer/ru.py)
+  - usa, usa_un, usa_ch — Stanza (en) (см. lemmatizer/en.py)
   - frg — spaCy de_core_news_sm + germalemma (см. lemmatizer/de.py)
 
 ru_merged/usa_merged — вычисляемые словари, лемм в них напрямую не пишут
@@ -29,11 +29,11 @@ def lemmatize(text: str, lang: LemmaLang) -> str:
     if not stripped:
         return text
 
-    if lang in (LemmaLang.ru, LemmaLang.ru_un):
+    if lang in (LemmaLang.ru, LemmaLang.ru_un, LemmaLang.ru_ch):
         from app.application.services.content.lemmatizer.ru import lemmatize_ru
 
         return lemmatize_ru(stripped)
-    if lang in (LemmaLang.usa, LemmaLang.usa_un):
+    if lang in (LemmaLang.usa, LemmaLang.usa_un, LemmaLang.usa_ch):
         from app.application.services.content.lemmatizer.en import lemmatize_en
 
         return lemmatize_en(stripped)

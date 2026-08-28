@@ -79,7 +79,7 @@ class LemmaBaselineAllResponse(BaseModel):
 
     dictionaries: list[LemmaBaselineItem] = Field(
         default_factory=list,
-        description="По одному элементу на каждый словарь: ru, ru_un, ru_merged, usa, usa_un, usa_merged, frg",
+        description="По одному элементу на каждый словарь: ru, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg",
     )
 
 
@@ -92,5 +92,5 @@ class LemmaCountsAllResponse(BaseModel):
 
     dictionaries: list[LemmaParameterCountsResponse] = Field(
         default_factory=list,
-        description="По одному элементу на каждый словарь: ru, ru_un, ru_merged, usa, usa_un, usa_merged, frg",
+        description="По одному элементу на каждый словарь: ru, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg",
     )
