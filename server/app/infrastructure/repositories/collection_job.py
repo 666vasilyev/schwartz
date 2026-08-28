@@ -14,6 +14,10 @@ from app.infrastructure.db.orm.models import (
     JobStatus,
     Source,
 )
+from app.utils.log_events import Events
+from app.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 _ACTIVE_STATUSES = (JobStatus.QUEUED.value, JobStatus.RUNNING.value, JobStatus.CREATED.value)
 _TERMINAL_STATUSES = (
@@ -27,6 +31,19 @@ _TERMINAL_STATUSES = (
 # Backoff config
 _BACKOFF_BASE_SECONDS = 30
 _BACKOFF_MAX_SECONDS = 3600
+
+# Postgres INTEGER (duration_ms column) caps at 2_147_483_647 (~24.8 days in ms).
+# Jobs that got orphaned in running/queued for weeks/months (e.g. worker killed
+# mid-job) would overflow this when finish_job_success/finish_job_failure
+# compute (now - started_at) in ms — clamp instead of crashing the UPDATE.
+_MAX_DURATION_MS = 2_147_483_647
+
+
+def _safe_duration_ms(started: datetime, now: datetime) -> int:
+    ms = int((now - started).total_seconds() * 1000)
+    if ms < 0:
+        return 0
+    return min(ms, _MAX_DURATION_MS)
 
 
 def _utcnow() -> datetime:
@@ -198,7 +215,7 @@ async def finish_job_success(
     started = job.started_at or now
     job.status = JobStatus.SUCCESS.value
     job.finished_at = now
-    job.duration_ms = int((now - started).total_seconds() * 1000)
+    job.duration_ms = _safe_duration_ms(started, now)
     job.fetched_count = fetched_count
     job.saved_count = saved_count
     job.duplicate_count = duplicate_count
@@ -226,7 +243,7 @@ async def finish_job_failure(
     now = _utcnow()
     started = job.started_at or now
     job.finished_at = now
-    job.duration_ms = int((now - started).total_seconds() * 1000)
+    job.duration_ms = _safe_duration_ms(started, now)
     job.failed_count = failed_count
     job.error_message = error_message[:2000]
     job.error_code = error_code
@@ -341,12 +358,28 @@ async def find_stuck_jobs(
 async def recover_stuck_jobs(
     db: AsyncSession, *, stale_minutes: int = 30
 ) -> list[int]:
-    """Re-queue or fail stuck jobs. Returns list of affected job IDs."""
+    """Re-queue or fail stuck jobs. Returns list of affected job IDs.
+
+    Each job is recovered in its own savepoint — if one row fails for an
+    unexpected reason, it's rolled back and logged, but doesn't abort the
+    whole batch (previously a single bad row, e.g. one with an out-of-range
+    duration_ms, would raise and roll back the entire request, silently
+    leaving every other stuck job — including unrelated ones — untouched).
+    """
     stuck = await find_stuck_jobs(db, stale_minutes=stale_minutes)
     recovered_ids: list[int] = []
     for job in stuck:
-        await finish_job_timeout(db, job.id)
-        recovered_ids.append(job.id)
+        try:
+            async with db.begin_nested():
+                await finish_job_timeout(db, job.id)
+            recovered_ids.append(job.id)
+        except Exception as exc:
+            logger.error(
+                Events.WORKER_UNEXPECTED_ERROR,
+                message=f"Failed to recover stuck job {job.id}",
+                job_id=job.id,
+                error=str(exc),
+            )
     return recovered_ids
 
 
