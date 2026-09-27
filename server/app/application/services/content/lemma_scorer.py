@@ -661,6 +661,20 @@ class MergedLangNotWritableError(ValueError):
     """*_merged языки — вычисляемая комбинация двух словарей, своего CSV-файла нет."""
 
 
+# Эталонные базовые словари — заморожены по требованию: правки (upsert через
+# append_lemmas, что покрывает и добавление новых лемм, и редактирование весов
+# уже существующих) на уровне сервера запрещены независимо от того, кто и как
+# вызывает API. ru_ch/usa_ch и merged-словари сюда не входят и остаются
+# редактируемыми как раньше.
+_FROZEN_LANGS: frozenset[LemmaLang] = frozenset(
+    {LemmaLang.ru, LemmaLang.ru_un, LemmaLang.usa, LemmaLang.usa_un, LemmaLang.frg}
+)
+
+
+class FrozenLangNotWritableError(ValueError):
+    """Эталонный словарь заморожен — добавление и редактирование лемм запрещено на уровне сервера."""
+
+
 def append_lemmas(
     lang: LemmaLang, items: list[dict], *, overwrite_existing: bool = True
 ) -> tuple[int, int, list[str], list[str]]:
@@ -686,6 +700,10 @@ def append_lemmas(
     if lang in _MERGED_COMPONENTS:
         raise MergedLangNotWritableError(
             f"'{lang.value}' — вычисляемый merged-словарь (сумма двух других), нет своего CSV-файла"
+        )
+    if lang in _FROZEN_LANGS:
+        raise FrozenLangNotWritableError(
+            f"'{lang.value}' — эталонный словарь, добавление и редактирование лемм запрещено на уровне сервера"
         )
 
     path = _find_csv(lang)

@@ -368,6 +368,8 @@ def _append_lemmas_to_csv(
         )
     except lemma_scorer.MergedLangNotWritableError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except lemma_scorer.FrozenLangNotWritableError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     return LemmaAppendResponse(
         lang=lang,
         added=added,
