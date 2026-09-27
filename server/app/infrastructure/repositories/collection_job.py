@@ -430,13 +430,30 @@ async def count_job_logs(db: AsyncSession, job_id: int) -> int:
 
 
 async def find_due_sources(db: AsyncSession) -> list[Source]:
-    """Sources where next_fetch_at <= now and status=active and no active job."""
+    """
+    Sources where next_fetch_at <= now, status is active or error, and no
+    active job.
+
+    status=error is included on purpose (previously this query required
+    status=active only). calculate_interval() (scheduler/engine.py) already
+    computes exponential backoff from source.error_count, and persist.py
+    already resets error_count=0 and status back to active on the next
+    successful collection — that machinery was fully built and correct, but
+    unreachable: excluding status=error here meant one transient fetch
+    failure (a feed 500ing once, a DNS blip, a single malformed-XML response)
+    permanently parked a source out of scheduling forever, with no retry, no
+    backoff — until someone manually called the reset_error action. Hit RSS
+    especially hard (external feeds are flaky by nature): dozens of sources
+    sat dead for weeks over a single one-off error each. Including error here
+    lets create_job/calculate_next_fetch_at retry them with the same backoff
+    everyone assumed was already active.
+    """
     from app.infrastructure.db.orm.models import SourceStatus
 
     now = _utcnow()
     # Sources with next_fetch_at overdue or never fetched
     q = select(Source).where(
-        Source.status == SourceStatus.ACTIVE.value,
+        Source.status.in_((SourceStatus.ACTIVE.value, SourceStatus.ERROR.value)),
         Source.deleted_at.is_(None),
         or_(
             Source.next_fetch_at.is_(None),
