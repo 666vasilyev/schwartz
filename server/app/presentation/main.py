@@ -11,6 +11,8 @@ from app.application.services.scheduler.runner import scheduler
 from app.application.services.worker.runner import worker as collection_worker
 from app.core.config import get_settings
 from app.infrastructure.clients import llm_registry
+from app.infrastructure.db.orm.session import AsyncSessionLocal
+from app.infrastructure.repositories.collection_job import recover_stuck_jobs
 from app.presentation.api.routes import collect, content, sources
 from app.presentation.api.routes.analytics import router as analytics_router
 from app.presentation.api.routes.auth import router as auth_router
@@ -44,6 +46,27 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await asyncio.to_thread(embedder._get_model)
         except Exception as exc:
             logger.warning("embedder_warmup_failed", error=str(exc))
+    # Подчистить задачи, застрявшие в running/queued/created с прошлого запуска
+    # процесса (redeploy/restart/OOM во время выполнения — worker и scheduler
+    # живут как asyncio-таски внутри этого же контейнера, и при его смерти
+    # такие записи иначе остаются "активными" навсегда, блокируя источник в
+    # find_due_sources — см. историю: так 3 telegram-источника простояли без
+    # сборки 29+ дней после redeploy, пока их не нашли вручную через SQL).
+    # Дальше SchedulerService подхватывает то же самое периодически (см.
+    # _sweep_stuck_jobs в scheduler/runner.py) — здесь только "нулевой" прогон,
+    # чтобы не ждать первого тика после свежего деплоя.
+    try:
+        async with AsyncSessionLocal() as db:
+            recovered = await recover_stuck_jobs(db, stale_minutes=30)
+        if recovered:
+            logger.warning(
+                Events.WORKER_HEARTBEAT,
+                message=f"Startup: recovered {len(recovered)} stuck job(s) from previous process: {recovered}",
+                job_ids=recovered,
+            )
+    except Exception as exc:
+        logger.error(Events.WORKER_UNEXPECTED_ERROR, message=f"Startup stuck-job recovery failed: {exc}", error=str(exc))
+
     collection_worker.start()
     scheduler.start()
     clustering_runner.start()

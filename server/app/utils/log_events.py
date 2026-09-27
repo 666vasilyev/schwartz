@@ -60,6 +60,7 @@ class Events:
     SCHEDULER_TICK = "scheduler.tick"
     SCHEDULER_SOURCE_DUE = "scheduler.source.due"
     SCHEDULER_JOB_ENQUEUED = "scheduler.job.enqueued"
+    SCHEDULER_STUCK_JOBS_RECOVERED = "scheduler.stuck_jobs.recovered"
 
     # ── Worker ─────────────────────────────────────────────────────────────
     WORKER_HEARTBEAT = "worker.heartbeat"
