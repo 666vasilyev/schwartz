@@ -88,6 +88,13 @@ def _apply_post_filters(
     date_to: datetime | None = None,
     search: str | None = None,
 ):
+    # Посты без текста (для RSS сюда же на этапе сохранения склеивается
+    # заголовок, см. persist.py:_rss_combined_text — отдельного поля title
+    # в модели Post нет) не показываем в общей ленте новостей: пользователю
+    # физически нечего показать. Затрагивает только GET /api/v1/posts
+    # (list_posts/count_posts), у постов конкретного источника
+    # (list_posts_by_source_id) такие записи всё ещё видны.
+    q = q.where(Post.text.is_not(None), func.trim(Post.text) != "")
     if source_ids:
         q = q.where(Post.source_id.in_(source_ids))
     if category_names:
