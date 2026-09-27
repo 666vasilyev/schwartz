@@ -30,7 +30,7 @@ CSV_COLUMNS: tuple[str, ...] = (
 
 
 class LemmaLang(str, Enum):
-    ru = "ru"
+    ru = "ru_ofs"
     ru_un = "ru_un"
     ru_ch = "ru_ch"
     ru_merged = "ru_merged"
@@ -42,7 +42,7 @@ class LemmaLang(str, Enum):
 
 
 _CSV_FILENAMES: dict[LemmaLang, str] = {
-    LemmaLang.ru: "ru.csv",
+    LemmaLang.ru: "ru_ofs.csv",
     LemmaLang.ru_un: "ru_un.csv",
     LemmaLang.ru_ch: "ru_ch.csv",
     LemmaLang.usa: "usa.csv",

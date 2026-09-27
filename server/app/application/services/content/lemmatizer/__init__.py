@@ -5,7 +5,7 @@
 изолированном слове/словосочетании, как оно приходит в append/extract/
 trend-candidates, а не на целом тексте):
 
-  - ru, ru_un, ru_ch — spaCy ru_core_news_sm (см. lemmatizer/ru.py)
+  - ru_ofs, ru_un, ru_ch — spaCy ru_core_news_sm (см. lemmatizer/ru.py)
   - usa, usa_un, usa_ch — Stanza (en) (см. lemmatizer/en.py)
   - frg — spaCy de_core_news_sm + germalemma (см. lemmatizer/de.py)
 
