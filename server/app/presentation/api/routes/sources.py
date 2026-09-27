@@ -3,7 +3,9 @@ Sources management API — /api/v1/sources
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Path, Query, Response, UploadFile, status
+from typing import Literal
+
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,8 +118,36 @@ async def list_sources(
     status: str | None = Query(None),
     source_type: str | None = Query(None),
     owner_id: int | None = Query(None),
+    sort_by: Literal["name", "source_type", "status"] | None = Query(
+        None,
+        description=(
+            "Поле сортировки. name — алфавитный порядок (см. sort_dir). "
+            "source_type / status — источники со значением sort_value поднимаются "
+            "наверх, остальные — ниже (порядок между ними не гарантирован)."
+        ),
+    ),
+    sort_dir: Literal["asc", "desc"] = Query(
+        "asc",
+        description=(
+            "Направление сортировки. Для name — обычный алфавит (asc) / обратный (desc). "
+            "Для source_type/status — asc поднимает sort_value наверх, desc опускает его вниз."
+        ),
+    ),
+    sort_value: str | None = Query(
+        None,
+        description=(
+            "Значение, которое нужно поднять наверх при sort_by=source_type "
+            "(rss / vk / telegram) или sort_by=status (active / paused / disabled / "
+            "error / blocked / deleted). Обязателен при этих sort_by."
+        ),
+    ),
     db: AsyncSession = Depends(get_session),
 ) -> SourceListResponse:
+    if sort_by in ("source_type", "status") and not sort_value:
+        raise HTTPException(
+            status_code=422,
+            detail=f"sort_value обязателен при sort_by='{sort_by}'",
+        )
     return await get_all_uc.execute(
         db,
         skip=skip,
@@ -126,6 +156,9 @@ async def list_sources(
         status=status,
         source_type=source_type,
         owner_id=owner_id,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        sort_value=sort_value,
     )
 
 

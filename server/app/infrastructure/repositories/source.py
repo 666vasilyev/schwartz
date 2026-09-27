@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -235,8 +235,11 @@ async def list_sources(
     source_type: str | None = None,
     owner_id: int | None = None,
     include_deleted: bool = False,
+    sort_by: str | None = None,
+    sort_dir: str = "asc",
+    sort_value: str | None = None,
 ) -> list[Source]:
-    q = select(Source).options(selectinload(Source.categories)).order_by(Source.id.desc())
+    q = select(Source).options(selectinload(Source.categories))
     if not include_deleted:
         q = q.where(Source.deleted_at.is_(None))
     if search and search.strip():
@@ -248,6 +251,25 @@ async def list_sources(
         q = q.where(Source.source_type == source_type)
     if owner_id is not None:
         q = q.where(Source.owner_id == owner_id)
+
+    # Сортировка. name — обычный алфавитный порядок. source_type / status —
+    # клик пользователя по значению колонки поднимает источники с этим
+    # значением наверх (остальные — ниже, порядок между ними не важен);
+    # sort_value — то самое выбранное значение (например "rss" или "error").
+    # Во всех случаях добавляем Source.id.desc() как стабильный тай-брейкер,
+    # чтобы порядок страниц пагинации не "плавал" между запросами.
+    if sort_by == "name":
+        name_col = Source.name.desc() if sort_dir == "desc" else Source.name.asc()
+        q = q.order_by(name_col, Source.id.desc())
+    elif sort_by == "source_type" and sort_value:
+        boost = case((Source.source_type == sort_value, 0), else_=1)
+        q = q.order_by(boost.desc() if sort_dir == "desc" else boost.asc(), Source.id.desc())
+    elif sort_by == "status" and sort_value:
+        boost = case((Source.status == sort_value, 0), else_=1)
+        q = q.order_by(boost.desc() if sort_dir == "desc" else boost.asc(), Source.id.desc())
+    else:
+        q = q.order_by(Source.id.desc())
+
     q = q.offset(skip).limit(limit)
     result = await db.execute(q)
     return list(result.scalars().all())

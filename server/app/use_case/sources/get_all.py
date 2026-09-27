@@ -13,6 +13,9 @@ async def execute(
     status: str | None = None,
     source_type: str | None = None,
     owner_id: int | None = None,
+    sort_by: str | None = None,
+    sort_dir: str = "asc",
+    sort_value: str | None = None,
 ) -> SourceListResponse:
     total = await count_sources(
         db, search=q, status=status, source_type=source_type, owner_id=owner_id
@@ -25,6 +28,9 @@ async def execute(
         status=status,
         source_type=source_type,
         owner_id=owner_id,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        sort_value=sort_value,
     )
     return SourceListResponse(
         items=[SourceRead.model_validate(r) for r in rows],
