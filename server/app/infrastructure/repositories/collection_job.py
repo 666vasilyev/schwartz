@@ -447,18 +447,37 @@ async def find_due_sources(db: AsyncSession) -> list[Source]:
     sat dead for weeks over a single one-off error each. Including error here
     lets create_job/calculate_next_fetch_at retry them with the same backoff
     everyone assumed was already active.
+
+    ORDER BY next_fetch_at ASC (never-fetched first) matters more than it
+    looks: the scheduler tick (runner.py) caps itself at _MAX_JOBS_PER_TICK
+    and BREAKS (not continues) once that cap is hit, so anything past the
+    cap in this result set is simply never looked at this tick — no rate
+    limit check, no schedule_log entry, nothing. Without an explicit order,
+    Postgres returns a stable-but-arbitrary order for an unordered SELECT,
+    so whichever sources happen to land early kept winning every single
+    tick — this is exactly how dozens of RSS sources sat permanently
+    unscheduled even after status=error was included above: they were
+    "due", just never near the front of an unordered result set competing
+    against ~100+ other due sources for a 20-per-tick budget. Ordering by
+    staleness guarantees the longest-overdue source always gets first crack
+    at that budget, so no source can be starved forever regardless of fleet
+    size or how many other sources are due at the same time.
     """
     from app.infrastructure.db.orm.models import SourceStatus
 
     now = _utcnow()
     # Sources with next_fetch_at overdue or never fetched
-    q = select(Source).where(
-        Source.status.in_((SourceStatus.ACTIVE.value, SourceStatus.ERROR.value)),
-        Source.deleted_at.is_(None),
-        or_(
-            Source.next_fetch_at.is_(None),
-            Source.next_fetch_at <= now,
-        ),
+    q = (
+        select(Source)
+        .where(
+            Source.status.in_((SourceStatus.ACTIVE.value, SourceStatus.ERROR.value)),
+            Source.deleted_at.is_(None),
+            or_(
+                Source.next_fetch_at.is_(None),
+                Source.next_fetch_at <= now,
+            ),
+        )
+        .order_by(Source.next_fetch_at.asc().nulls_first())
     )
     result = await db.execute(q)
     sources = list(result.scalars().all())
