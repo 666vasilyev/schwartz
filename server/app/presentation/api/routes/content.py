@@ -3,6 +3,7 @@ POST /analyze/source/{source_id} — посты стены источника: L
 GET  /analyze/source/{source_id}/stored — последний сохранённый агрегат Шварца из БД.
 """
 from datetime import date, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -448,8 +449,20 @@ def get_lemma_blacklist(
             "для старого фронта."
         ),
     ),
+    word_lang: Literal["ru", "en", "de"] | None = Query(
+        None,
+        description=(
+            "Фильтр по языку леммы — определяется эвристически по алфавиту "
+            "символов (регуляркой, без словарей): кириллица → ru, немецкие "
+            "спецсимволы äöüß → de, иначе латиница → en."
+        ),
+    ),
+    search: str | None = Query(None, description="Подстрока для фильтра по лемме (регистронезависимо)"),
 ) -> LemmaBlacklistListResponse:
-    return LemmaBlacklistListResponse(lang=lang, lemmas=lemma_scorer.list_blacklist())
+    return LemmaBlacklistListResponse(
+        lang=lang,
+        lemmas=lemma_scorer.list_blacklist(search=search, word_lang=word_lang),
+    )
 
 
 @router.post(

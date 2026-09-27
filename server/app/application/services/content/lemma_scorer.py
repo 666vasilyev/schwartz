@@ -509,9 +509,53 @@ def _load_blacklist_raw() -> frozenset[str]:
     return frozenset(_clean_lemma(line) for line in lines if line.strip())
 
 
-def list_blacklist() -> list[str]:
-    """Общий (на все языки) чёрный список лемм, отсортированный по алфавиту."""
-    return sorted(_load_blacklist_raw())
+_CYRILLIC_CHARS_RE = re.compile(r"[а-яё]", re.IGNORECASE)
+_GERMAN_ONLY_CHARS_RE = re.compile(r"[äöüß]", re.IGNORECASE)
+_LATIN_CHARS_RE = re.compile(r"[a-z]", re.IGNORECASE)
+
+
+def detect_lemma_lang(lemma: str) -> str | None:
+    """
+    Грубое определение языка леммы по алфавиту символов — без словарей и
+    внешних библиотек, просто по регуляркам (в порядке проверки):
+      - есть кириллица (а-я/ё) → "ru";
+      - иначе есть немецкие спецсимволы (äöüß) → "de";
+      - иначе есть латиница (a-z) → "en";
+      - иначе (лемма вообще без букв — цифры/пунктуация) → None.
+
+    Эвристика, не лингвистический анализ: обычное английское слово без
+    умляутов детектится как "en", даже если по смыслу это может быть
+    заимствование из немецкого — этого и не требовалось.
+    """
+    if _CYRILLIC_CHARS_RE.search(lemma):
+        return "ru"
+    if _GERMAN_ONLY_CHARS_RE.search(lemma):
+        return "de"
+    if _LATIN_CHARS_RE.search(lemma):
+        return "en"
+    return None
+
+
+def list_blacklist(*, search: str | None = None, word_lang: str | None = None) -> list[str]:
+    """
+    Общий (на все языки) чёрный список лемм, отсортированный по алфавиту.
+
+    search — подстрока для фильтра по лемме (регистронезависимо), как в
+    list_lemmas.
+    word_lang — фильтр по языку леммы: "ru" / "en" / "de", см.
+    detect_lemma_lang. Леммы без букв под фильтр по языку не попадают ни в
+    одну категорию.
+    """
+    lemmas = sorted(_load_blacklist_raw())
+
+    if word_lang:
+        lemmas = [lemma for lemma in lemmas if detect_lemma_lang(lemma) == word_lang]
+
+    if search:
+        needle = search.strip().casefold()
+        lemmas = [lemma for lemma in lemmas if needle in lemma.casefold()]
+
+    return lemmas
 
 
 def is_blacklisted(lemma: str) -> bool:
