@@ -82,6 +82,38 @@ async def set_buffer_weights(
     return True
 
 
+async def list_buffer_lemmas_for_weight_generation(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    only_missing: bool = True,
+    limit: int = 50,
+) -> list[LemmaBufferEntry]:
+    """
+    Леммы буфера для пакетной LLM-генерации весов (action=generate_weights в
+    POST /lemma/buffer). only_missing=True (по умолчанию) — только те, у кого
+    weights ещё NULL, чтобы не жечь LLM-вызовы повторно на уже размеченных;
+    only_missing=False — вообще все (для overwrite=True, пересчитать заново).
+    Порядок — как и везде в буфере, по first_seen_at.
+    """
+    q = select(LemmaBufferEntry).where(LemmaBufferEntry.user_id == user_id)
+    if only_missing:
+        q = q.where(LemmaBufferEntry.weights.is_(None))
+    q = q.order_by(LemmaBufferEntry.first_seen_at.asc()).limit(limit)
+    result = await db.execute(q)
+    return list(result.scalars().all())
+
+
+async def count_buffer_lemmas_for_weight_generation(
+    db: AsyncSession, *, user_id: int, only_missing: bool = True
+) -> int:
+    q = select(func.count()).select_from(LemmaBufferEntry).where(LemmaBufferEntry.user_id == user_id)
+    if only_missing:
+        q = q.where(LemmaBufferEntry.weights.is_(None))
+    result = await db.execute(q)
+    return int(result.scalar_one() or 0)
+
+
 async def list_buffer_entries(
     db: AsyncSession,
     *,

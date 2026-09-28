@@ -38,29 +38,56 @@ class LemmaBufferActionRequest(BaseModel):
         (лемма уже должна быть в буфере — см. add). Леммы не из буфера
         попадают в `not_found` ответа и пропускаются;
       - remove — убрать леммы из `lemmas` (сверяются после нормализации);
-      - clear — очистить весь буфер текущего пользователя (остальные поля игнорируются).
+      - clear — очистить весь буфер текущего пользователя (остальные поля игнорируются);
+      - generate_weights — пакетно сгенерировать веса/категорию через LLM для
+        лемм буфера (по умолчанию только тех, у кого weights ещё не заданы —
+        см. `overwrite`), сразу сохранить результат в буфер. Обязателен `lang`
+        (от него зависит список категорий, которые предлагаются LLM). За один
+        вызов обрабатывается не больше `limit` лемм (LLM-вызовы
+        последовательные, по одному на лемму — см. assign_weights_to_lemmas);
+        если лемм больше — вызывать снова, пока в ответе remaining не станет 0.
     """
 
-    action: Literal["add", "set_weights", "remove", "clear"]
+    action: Literal["add", "set_weights", "remove", "clear", "generate_weights"]
     items: list[LemmaBufferAddItem] = Field(default_factory=list, max_length=50)
     weights_items: list[LemmaBufferWeightsItem] = Field(default_factory=list, max_length=50)
     lemmas: list[str] = Field(default_factory=list, max_length=200)
+    lang: LemmaLang | None = Field(None, description="Обязателен при action=generate_weights")
+    overwrite: bool = Field(
+        False, description="action=generate_weights: пересчитать и для лемм, у которых веса уже есть"
+    )
+    limit: int = Field(50, ge=1, le=50, description="action=generate_weights: сколько лемм обработать за раз")
+    provider: str | None = Field(None, description="action=generate_weights: провайдер LLM (по умолчанию — активный)")
+    model: str | None = Field(None, description="action=generate_weights: модель LLM (по умолчанию — активная)")
 
 
 class LemmaBufferActionResponse(BaseModel):
-    action: Literal["add", "set_weights", "remove", "clear"]
+    action: Literal["add", "set_weights", "remove", "clear", "generate_weights"]
     added: int = Field(0, description="Сколько новых лемм добавлено (только action=add)")
     updated: int = Field(
         0,
         description=(
             "action=add — сколько лемм уже было в буфере (повторное выделение, без дубля); "
-            "action=set_weights — сколько лемм получили сохранённые веса/категорию"
+            "action=set_weights — сколько лемм получили сохранённые веса/категорию; "
+            "action=generate_weights — сколько лемм успешно сгенерировано и сохранено"
         ),
     )
     removed: int = Field(0, description="Сколько записей удалено (action=remove или clear)")
     not_found: list[str] = Field(
         default_factory=list,
         description="action=set_weights — леммы, которых нет в буфере пользователя (пропущены)",
+    )
+    failed: list[str] = Field(
+        default_factory=list,
+        description="action=generate_weights — леммы, для которых LLM не вернула разбираемый ответ (не сохранены, weights остались NULL — можно повторить)",
+    )
+    generated: list[LemmaBufferWeightsItem] = Field(
+        default_factory=list,
+        description="action=generate_weights — сгенерированные {lemma, weights, category}, в формате /lemma/append",
+    )
+    remaining: int = Field(
+        0,
+        description="action=generate_weights — сколько лемм ещё осталось без весов после этого вызова (лимит за раз — limit)",
     )
 
 

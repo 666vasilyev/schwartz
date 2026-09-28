@@ -9,13 +9,15 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.content import lemma_scorer
-from app.application.services.content.lemma_llm_extractor import extract_new_lemmas
+from app.application.services.content.lemma_llm_extractor import assign_weights_to_lemmas, extract_new_lemmas
 from app.application.services.content.lemma_scorer import LemmaLang
 from app.application.services.content.lemmatizer import lemmatize
 from app.infrastructure.db.orm.models import User
 from app.infrastructure.repositories.lemma_buffer import (
     clear_buffer,
+    count_buffer_lemmas_for_weight_generation,
     list_buffer_entries,
+    list_buffer_lemmas_for_weight_generation,
     remove_buffer_entries,
     set_buffer_weights,
     upsert_buffer_entry,
@@ -57,6 +59,7 @@ from app.presentation.schemas.lemma_buffer import (
     LemmaBufferActionResponse,
     LemmaBufferItem,
     LemmaBufferListResponse,
+    LemmaBufferWeightsItem,
 )
 from app.use_case.analyze import get_stored as analyze_get_stored
 from app.use_case.analyze import lemma as analyze_lemma
@@ -572,7 +575,7 @@ async def lemma_trend_candidate_weights(
 @router.post(
     "/lemma/buffer",
     response_model=LemmaBufferActionResponse,
-    summary="Буфер лемм: добавить фрагменты / сохранить веса / удалить / очистить (action=add|set_weights|remove|clear)",
+    summary="Буфер лемм: добавить фрагменты / сохранить веса / сгенерировать веса пачкой / удалить / очистить (action=add|set_weights|generate_weights|remove|clear)",
 )
 async def lemma_buffer_action(
     body: LemmaBufferActionRequest,
@@ -596,6 +599,16 @@ async def lemma_buffer_action(
     формате /lemma/append (lemma, weights, category).
 
     action=remove/clear — как раньше.
+
+    action=generate_weights — то же, что несколько раз подряд вызвать
+    GET /lemma/trend-candidates/{lemma}/weights для лемм буфера, но одним
+    запросом и сразу с сохранением. По умолчанию берёт только леммы без
+    весов (не трогает уже размеченные — overwrite=True пересчитывает всех).
+    LLM-вызовы последовательные (по одному на лемму), поэтому обрабатывается
+    не больше `limit` лемм за раз — remaining в ответе показывает, сколько
+    ещё осталось (вызывать снова, пока не станет 0). Леммы, для которых LLM
+    не дала разбираемый ответ, попадают в failed и НЕ сохраняются (weights
+    остаются NULL — можно повторить тем же вызовом).
     """
     if body.action == "add":
         added = 0
@@ -633,6 +646,50 @@ async def lemma_buffer_action(
             else:
                 not_found.append(item.lemma)
         return LemmaBufferActionResponse(action=body.action, updated=updated, not_found=not_found)
+
+    if body.action == "generate_weights":
+        if body.lang is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="lang обязателен при action=generate_weights",
+            )
+        only_missing = not body.overwrite
+        total_pending = await count_buffer_lemmas_for_weight_generation(
+            db, user_id=current_user.id, only_missing=only_missing
+        )
+        entries = await list_buffer_lemmas_for_weight_generation(
+            db, user_id=current_user.id, only_missing=only_missing, limit=body.limit
+        )
+        results = await assign_weights_to_lemmas(
+            [e.lemma for e in entries], body.lang, provider=body.provider, model=body.model
+        )
+        generated: list[LemmaBufferWeightsItem] = []
+        failed: list[str] = []
+        for item in results:
+            if not item["category"]:
+                # LLM не вернула разбираемый ответ (см. docstring assign_weights_to_lemmas) —
+                # weights в буфере остаются NULL, лемма попадёт в следующий вызов снова.
+                failed.append(item["lemma"])
+                continue
+            await set_buffer_weights(
+                db,
+                user_id=current_user.id,
+                lemma=item["lemma"],
+                weights=item["weights"],
+                category=item["category"],
+            )
+            generated.append(
+                LemmaBufferWeightsItem(
+                    lemma=item["lemma"], weights=item["weights"], category=item["category"]
+                )
+            )
+        return LemmaBufferActionResponse(
+            action=body.action,
+            updated=len(generated),
+            failed=failed,
+            generated=generated,
+            remaining=max(0, total_pending - len(entries)),
+        )
 
     if body.action == "remove":
         keys = [k for k in (lemma_scorer.clean_lemma(x) for x in body.lemmas) if k]
