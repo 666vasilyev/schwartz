@@ -221,6 +221,21 @@ class LemmaParameterCountsResponse(BaseModel):
     )
 
 
+class LemmaCategoryCount(BaseModel):
+    category: str
+    count: int = Field(description="Сколько лемм словаря несут эту категорию")
+
+
+class LemmaCategoryCountsResponse(BaseModel):
+    """Подсчёт лемм словаря lang по категориям — топ используемых, по убыванию count."""
+
+    lang: LemmaLang
+    total_categories: int = Field(description="Сколько всего разных категорий в словаре (до обрезки до limit)")
+    counts: list[LemmaCategoryCount] = Field(
+        default_factory=list, description="Топ категорий по убыванию количества лемм (не больше limit)"
+    )
+
+
 class LemmaTrendWeekRange(BaseModel):
     """Границы одной из недель, использованных при поиске частотных лемм трендов."""
 

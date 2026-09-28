@@ -40,6 +40,8 @@ from app.presentation.schemas.analysis import (
     LemmaCategoriesRequest,
     LemmaCategoryActionRequest,
     LemmaCategoryActionResponse,
+    LemmaCategoryCount,
+    LemmaCategoryCountsResponse,
     LemmaCategoryListResponse,
     LemmaExtractRequest,
     LemmaExtractResponse,
@@ -501,6 +503,24 @@ def lemma_category_action(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return LemmaCategoryActionResponse(
         lang=lang, action=body.action, lemma=entry["lemma"], category=entry["category"]
+    )
+
+
+@router.get(
+    "/lemma/categories/counts",
+    response_model=LemmaCategoryCountsResponse,
+    summary="Подсчёт лемм по категориям — топ используемых категорий словаря",
+)
+def get_lemma_category_counts(
+    lang: LemmaLang = _LANG_QUERY,
+    limit: int = Query(10, ge=1, le=100, description="Сколько категорий вернуть — топ по убыванию количества лемм"),
+) -> LemmaCategoryCountsResponse:
+    counts = lemma_scorer.count_lemmas_by_category(lang)
+    top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return LemmaCategoryCountsResponse(
+        lang=lang,
+        total_categories=len(counts),
+        counts=[LemmaCategoryCount(category=c, count=n) for c, n in top],
     )
 
 

@@ -455,6 +455,28 @@ def count_lemmas_by_parameter(lang: LemmaLang) -> dict[str, int]:
     return counts
 
 
+def count_lemmas_by_category(lang: LemmaLang) -> dict[str, int]:
+    """
+    Сколько лемм словаря `lang` несёт каждую категорию (лемма с несколькими
+    категориями учитывается в каждой из них; повтор одной категории у одной
+    леммы считается один раз). Категории уже в canonical-форме (casefold —
+    так они хранятся в categories_dict после _load_index), "nan"-мусор
+    отфильтрован, как и в list_categories.
+
+    Не отсортировано и не обрезано — топ-N считает вызывающий код (см. route
+    GET /lemma/categories/counts), здесь только сырые счётчики по всему словарю.
+    """
+    _single, _phrase, _pattern, categories_dict = _load_index(lang)
+    counts: dict[str, int] = {}
+    for cat_list in categories_dict.values():
+        for c in set(cat_list):
+            c = c.strip()
+            if not c or c == "nan":
+                continue
+            counts[c] = counts.get(c, 0) + 1
+    return counts
+
+
 _BLACKLIST_FILENAME = "blacklist.csv"
 
 # Раньше список был отдельным файлом на каждый базовый язык словаря — теперь
