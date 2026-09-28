@@ -708,6 +708,10 @@ class UnknownLemmaCategoryError(ValueError):
     """
 
 
+class TooManyLemmaCategoriesError(ValueError):
+    """У леммы уже максимум категорий (MAX_CATEGORIES_PER_LEMMA) — сначала нужно снять одну (action=remove)."""
+
+
 def append_lemmas(
     lang: LemmaLang, items: list[dict], *, overwrite_existing: bool = True
 ) -> tuple[int, int, list[str], list[str]]:
@@ -828,6 +832,9 @@ def _resolve_canonical_category(lang: LemmaLang, category: str) -> str:
     return canonical
 
 
+MAX_CATEGORIES_PER_LEMMA = 10
+
+
 def add_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
     """
     Добавить категорию `category` уже существующей лемме `lemma` в словаре
@@ -835,6 +842,10 @@ def add_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
     новые категории нельзя (см. UnknownLemmaCategoryError), можно только
     назначать леммам уже существующие. Если у леммы такая категория уже есть —
     операция идемпотентна (дубль не добавляется).
+
+    Ограничение: у одной леммы не может быть больше MAX_CATEGORIES_PER_LEMMA
+    (10) категорий одновременно — TooManyLemmaCategoriesError, если лимит уже
+    исчерпан и добавляемой категории ещё нет среди текущих.
 
     Возвращает обновлённую запись {lemma, weights, category}. Пишет через
     append_lemmas — соответственно, тоже уважает заморозку словарей
@@ -846,7 +857,13 @@ def add_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
         raise LemmaNotFoundError(f"Леммы '{lemma}' нет в словаре '{lang.value}'")
 
     current = _split_categories(entry["category"])
-    if canonical.casefold() not in {c.casefold() for c in current}:
+    already_has = canonical.casefold() in {c.casefold() for c in current}
+    if not already_has and len(current) >= MAX_CATEGORIES_PER_LEMMA:
+        raise TooManyLemmaCategoriesError(
+            f"У леммы '{entry['lemma']}' уже {MAX_CATEGORIES_PER_LEMMA} категорий — "
+            "максимум для одной леммы. Сначала снимите одну из существующих (action=remove)."
+        )
+    if not already_has:
         current.append(canonical)
     new_category = " / ".join(current)
 

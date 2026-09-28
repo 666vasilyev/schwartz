@@ -446,11 +446,11 @@ def list_lemma_csv(
 @router.get(
     "/lemma/categories",
     response_model=LemmaCategoryListResponse,
-    summary="Категории лемм словаря — список (максимум 10 за раз)",
+    summary="Категории лемм словаря — полный список уже существующих значений (для выбора при add)",
 )
 def list_lemma_categories(
     lang: LemmaLang = _LANG_QUERY,
-    limit: int = Query(10, ge=1, le=10, description="Сколько категорий вернуть за один запрос (максимум 10)"),
+    limit: int = Query(100, ge=1, le=500, description="Сколько категорий вернуть за один запрос"),
     offset: int = Query(0, ge=0, description="Сколько категорий пропустить (пагинация)"),
 ) -> LemmaCategoryListResponse:
     all_categories = lemma_scorer.list_categories(lang)
@@ -481,7 +481,8 @@ def lemma_category_action(
     на уровне сервера (403). Категория, которой ещё нет ни у одной леммы
     словаря, отклоняется (422) — новые категории через эту ручку не
     создаются, только переиспользуются существующие (см. GET /lemma/categories).
-    Леммы, которой нет в словаре, — 404.
+    У одной леммы не может быть больше 10 категорий одновременно (422, если
+    лимит уже исчерпан). Леммы, которой нет в словаре, — 404.
     """
     try:
         if body.action == "add":
@@ -493,6 +494,8 @@ def lemma_category_action(
     except lemma_scorer.FrozenLangNotWritableError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     except lemma_scorer.UnknownLemmaCategoryError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except lemma_scorer.TooManyLemmaCategoriesError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except lemma_scorer.LemmaNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
