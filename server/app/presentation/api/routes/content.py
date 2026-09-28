@@ -38,6 +38,9 @@ from app.presentation.schemas.analysis import (
     LemmaBlacklistActionResponse,
     LemmaBlacklistListResponse,
     LemmaCategoriesRequest,
+    LemmaCategoryActionRequest,
+    LemmaCategoryActionResponse,
+    LemmaCategoryListResponse,
     LemmaExtractRequest,
     LemmaExtractResponse,
     LemmaListResponse,
@@ -437,6 +440,64 @@ def list_lemma_csv(
         offset=offset,
         limit=limit,
         lemmas=[NewLemmaItem(**row) for row in rows],
+    )
+
+
+@router.get(
+    "/lemma/categories",
+    response_model=LemmaCategoryListResponse,
+    summary="Категории лемм словаря — список (максимум 10 за раз)",
+)
+def list_lemma_categories(
+    lang: LemmaLang = _LANG_QUERY,
+    limit: int = Query(10, ge=1, le=10, description="Сколько категорий вернуть за один запрос (максимум 10)"),
+    offset: int = Query(0, ge=0, description="Сколько категорий пропустить (пагинация)"),
+) -> LemmaCategoryListResponse:
+    all_categories = lemma_scorer.list_categories(lang)
+    page = all_categories[offset : offset + limit]
+    return LemmaCategoryListResponse(
+        lang=lang, total=len(all_categories), offset=offset, limit=limit, categories=page
+    )
+
+
+@router.post(
+    "/lemma/categories",
+    response_model=LemmaCategoryActionResponse,
+    summary="Добавить/снять категорию у леммы (action=add|remove; категория обязана уже существовать в словаре)",
+)
+def lemma_category_action(
+    body: LemmaCategoryActionRequest,
+    lang: LemmaLang = Query(
+        ..., description="Словарь: ru_ofs, ru_un, ru_ch, usa, usa_un, usa_ch, frg (merged — только чтение)"
+    ),
+) -> LemmaCategoryActionResponse:
+    """
+    Единая ручка вместо раздельных /categories/add и /categories/remove — тот
+    же паттерн, что и POST /lemma/blacklist и POST /sources/{id}/action.
+
+    Пишет в тот же CSV-словарь, что и /lemma/append (через append_lemmas), и
+    подчиняется тем же ограничениям: merged-словари (ru_merged, usa_merged) —
+    вычисляемые, без своего файла (422); ru_ofs/ru_un/usa/usa_un/frg заморожены
+    на уровне сервера (403). Категория, которой ещё нет ни у одной леммы
+    словаря, отклоняется (422) — новые категории через эту ручку не
+    создаются, только переиспользуются существующие (см. GET /lemma/categories).
+    Леммы, которой нет в словаре, — 404.
+    """
+    try:
+        if body.action == "add":
+            entry = lemma_scorer.add_lemma_category(lang, body.lemma, body.category)
+        else:
+            entry = lemma_scorer.remove_lemma_category(lang, body.lemma, body.category)
+    except lemma_scorer.MergedLangNotWritableError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except lemma_scorer.FrozenLangNotWritableError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except lemma_scorer.UnknownLemmaCategoryError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except lemma_scorer.LemmaNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return LemmaCategoryActionResponse(
+        lang=lang, action=body.action, lemma=entry["lemma"], category=entry["category"]
     )
 
 

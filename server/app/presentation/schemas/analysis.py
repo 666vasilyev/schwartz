@@ -103,6 +103,41 @@ class LemmaListResponse(BaseModel):
     lemmas: list[NewLemmaItem] = Field(default_factory=list, description="Страница строк, отсортировано по лемме")
 
 
+class LemmaCategoryListResponse(BaseModel):
+    """Категории лемм словаря — GET /lemma/categories. Максимум 10 штук за один запрос (см. limit)."""
+
+    lang: LemmaLang
+    total: int = Field(description="Всего уникальных категорий в словаре")
+    offset: int
+    limit: int
+    categories: list[str] = Field(
+        default_factory=list, description="Страница категорий, по алфавиту (не больше limit за раз)"
+    )
+
+
+class LemmaCategoryActionRequest(BaseModel):
+    """
+    Единая ручка на изменение категорий лемм — action выбирает операцию (тот
+    же паттерн, что и POST /lemma/blacklist). Категория обязана уже
+    существовать в словаре (см. GET /lemma/categories) — придумывать новые
+    категории нельзя, можно только назначать/снимать с леммы уже
+    существующие.
+    """
+
+    action: Literal["add", "remove"]
+    lemma: str = Field(..., min_length=1, description="Лемма, уже существующая в словаре lang")
+    category: str = Field(
+        ..., min_length=1, description="Категория — должна уже быть в GET /lemma/categories?lang=..."
+    )
+
+
+class LemmaCategoryActionResponse(BaseModel):
+    lang: LemmaLang
+    action: Literal["add", "remove"]
+    lemma: str
+    category: str = Field(description="Итоговая строка категорий леммы после операции (через ' / ')")
+
+
 class LemmaAppendRequest(BaseModel):
     """Запрос на дозапись лемм (вручную или результат /lemma/extract) в CSV-словарь."""
 

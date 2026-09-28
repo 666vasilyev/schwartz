@@ -395,6 +395,27 @@ def existing_lemmas(lang: LemmaLang) -> set[str]:
     return set(single_dict) | set(phrase_dict)
 
 
+def get_lemma(lang: LemmaLang, lemma: str) -> dict | None:
+    """
+    Одна лемма словаря `lang` целиком — {lemma, weights, category} — по точному
+    совпадению (после нормализации, как в append_lemmas/existing_lemmas). None,
+    если такой леммы в словаре нет. Используется для точечных операций вроде
+    add_lemma_category/remove_lemma_category, где нужно взять текущие
+    weights/category леммы перед перезаписью строки в CSV.
+    """
+    key = _clean_lemma(lemma)
+    if not key:
+        return None
+    single_dict, phrase_dict, _pattern, categories_dict = _load_index(lang)
+    weights = single_dict.get(key)
+    if weights is None:
+        weights = phrase_dict.get(key)
+    if weights is None:
+        return None
+    category = " / ".join(categories_dict.get(key, []))
+    return {"lemma": key, "weights": dict(weights), "category": category}
+
+
 def list_categories(lang: LemmaLang) -> list[str]:
     """
     Канонический список категорий словаря `lang`: все уникальные непустые теги
@@ -675,6 +696,18 @@ class FrozenLangNotWritableError(ValueError):
     """Эталонный словарь заморожен — добавление и редактирование лемм запрещено на уровне сервера."""
 
 
+class LemmaNotFoundError(ValueError):
+    """Леммы нет в словаре — операции над категориями возможны только для уже существующих лемм."""
+
+
+class UnknownLemmaCategoryError(ValueError):
+    """
+    Категория не входит в список уже существующих категорий словаря
+    (list_categories) — по требованию, новые категории через этот механизм
+    создавать нельзя, можно только назначать/снимать уже существующие.
+    """
+
+
 def append_lemmas(
     lang: LemmaLang, items: list[dict], *, overwrite_existing: bool = True
 ) -> tuple[int, int, list[str], list[str]]:
@@ -774,3 +807,77 @@ def append_lemmas(
         already_in_dict=len(already_in_dict),
     )
     return added_count, len(updated_keys), skipped, already_in_dict
+
+
+
+def _split_categories(raw: str) -> list[str]:
+    return [c.strip() for c in raw.split("/") if c.strip()] if raw else []
+
+
+def _resolve_canonical_category(lang: LemmaLang, category: str) -> str:
+    """Категория как она канонически записана в словаре (по регистронезависимому совпадению)
+    или UnknownLemmaCategoryError, если такой категории в словаре ещё нет ни у одной леммы."""
+    valid_by_fold = {c.casefold(): c for c in list_categories(lang)}
+    canonical = valid_by_fold.get(category.strip().casefold())
+    if canonical is None:
+        raise UnknownLemmaCategoryError(
+            f"Категории '{category}' нет в словаре '{lang.value}' — новые категории "
+            "через этот механизм создавать нельзя, можно назначать только уже существующие "
+            "(см. GET /lemma/categories)"
+        )
+    return canonical
+
+
+def add_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
+    """
+    Добавить категорию `category` уже существующей лемме `lemma` в словаре
+    `lang`. Категория обязана уже входить в list_categories(lang) — придумывать
+    новые категории нельзя (см. UnknownLemmaCategoryError), можно только
+    назначать леммам уже существующие. Если у леммы такая категория уже есть —
+    операция идемпотентна (дубль не добавляется).
+
+    Возвращает обновлённую запись {lemma, weights, category}. Пишет через
+    append_lemmas — соответственно, тоже уважает заморозку словарей
+    (MergedLangNotWritableError/FrozenLangNotWritableError).
+    """
+    canonical = _resolve_canonical_category(lang, category)
+    entry = get_lemma(lang, lemma)
+    if entry is None:
+        raise LemmaNotFoundError(f"Леммы '{lemma}' нет в словаре '{lang.value}'")
+
+    current = _split_categories(entry["category"])
+    if canonical.casefold() not in {c.casefold() for c in current}:
+        current.append(canonical)
+    new_category = " / ".join(current)
+
+    append_lemmas(
+        lang,
+        [{"lemma": entry["lemma"], "weights": entry["weights"], "category": new_category}],
+        overwrite_existing=True,
+    )
+    entry["category"] = new_category
+    return entry
+
+
+def remove_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
+    """
+    Снять категорию `category` с леммы `lemma` в словаре `lang`. Если у леммы
+    такой категории и не было — операция идемпотентна (ничего не меняется, но
+    и не падает). Остальное — см. add_lemma_category.
+    """
+    entry = get_lemma(lang, lemma)
+    if entry is None:
+        raise LemmaNotFoundError(f"Леммы '{lemma}' нет в словаре '{lang.value}'")
+
+    current = _split_categories(entry["category"])
+    new_current = [c for c in current if c.casefold() != category.strip().casefold()]
+    new_category = " / ".join(new_current)
+
+    if new_category != entry["category"]:
+        append_lemmas(
+            lang,
+            [{"lemma": entry["lemma"], "weights": entry["weights"], "category": new_category}],
+            overwrite_existing=True,
+        )
+    entry["category"] = new_category
+    return entry
