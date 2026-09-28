@@ -9,10 +9,11 @@ from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.presentation.api.dependencies import get_current_user, get_session
-from app.presentation.schemas.post import PostListResponse
+from app.presentation.schemas.post import PostListResponse, PostSummaryRequest, PostSummaryResponse
 from app.use_case.posts import export_posts as export_uc
 from app.use_case.posts import get_all as get_all_uc
 from app.use_case.posts import import_posts as import_uc
+from app.use_case.posts import summarize as summarize_uc
 
 router = APIRouter(prefix="/api/v1/posts", tags=["Posts"], dependencies=[Depends(get_current_user)])
 
@@ -50,6 +51,18 @@ async def import_posts(
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     return await import_uc.execute(db, file)
+
+
+@router.post(
+    "/summary",
+    response_model=PostSummaryResponse,
+    summary="Саммари по выбранным пользователем новостям через LLM",
+)
+async def summarize_posts(
+    body: PostSummaryRequest,
+    db: AsyncSession = Depends(get_session),
+) -> PostSummaryResponse:
+    return await summarize_uc.execute(db, body.post_ids)
 
 
 @router.get(

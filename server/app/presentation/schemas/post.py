@@ -51,6 +51,25 @@ class PostRead(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PostSummaryRequest(BaseModel):
+    """Саммари по постам, выбранным пользователем на фронте (POST /api/v1/posts/summary)."""
+
+    post_ids: list[int] = Field(..., min_length=1, max_length=20, description="ID постов (до 20 за раз)")
+
+
+class PostSummaryResponse(BaseModel):
+    title: str | None = Field(None, description="Короткий заголовок сюжета")
+    summary: str | None = Field(None, description="Саммари в 1-3 предложениях")
+    topics: list[str] = Field(default_factory=list, description="1-4 коротких ярлыка темы")
+    posts_used: int = Field(description="Сколько постов реально попало в промпт (с непустым текстом)")
+    missing_post_ids: list[int] = Field(
+        default_factory=list, description="ID из запроса, которых не нашлось в БД"
+    )
+    empty_text_post_ids: list[int] = Field(
+        default_factory=list, description="Найдены, но без текста — не учтены в саммари"
+    )
+
+
 class PostListResponse(BaseModel):
     items: list[PostRead]
     total: int

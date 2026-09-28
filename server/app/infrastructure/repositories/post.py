@@ -55,6 +55,14 @@ async def get_recent_posts(db: AsyncSession, limit: int) -> list[Post]:
     return list(result.scalars().all())
 
 
+async def list_posts_by_ids(db: AsyncSession, post_ids: list[int]) -> list[Post]:
+    """Посты по произвольному набору id — для саммари по выборке, собранной пользователем на фронте."""
+    if not post_ids:
+        return []
+    result = await db.execute(select(Post).where(Post.id.in_(post_ids)))
+    return list(result.scalars().all())
+
+
 async def list_posts_by_owner_id(db: AsyncSession, owner_id: int) -> list[Post]:
     """Посты стены, совпадающие с vk_owner_id источника."""
     result = await db.execute(
