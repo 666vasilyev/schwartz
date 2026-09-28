@@ -3,18 +3,14 @@
 """
 
 from app.infrastructure.clients.llm import ask_llm_json
+from app.infrastructure.prompts import load_prompt
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 _MAX_CHARS = 8000
 
-_SYSTEM = (
-    "Ты эксперт по выявлению деструктивного, манипулятивного или опасного контента в тексте. "
-    "Оцени уровень деструктивности по шкале от 0.0 (нейтрально) до 1.0 (максимальная деструктивность). "
-    "Верни JSON-объект: {\"score\": <число 0.0..1.0>, \"reason\": <краткое пояснение на русском>}. "
-    "Отвечай только валидным JSON."
-)
+# Промпт вынесен в server/prompts/text_destructiveness_system.txt (см. app.infrastructure.prompts)
 
 
 async def analyze_text(
@@ -30,7 +26,7 @@ async def analyze_text(
     # Ошибки LLM (HTTPException 502) пробрасываются наверх — клиент получает реальную ошибку
     result = await ask_llm_json(
         f"Текст:\n\n{t}",
-        system=_SYSTEM,
+        system=load_prompt("text_destructiveness_system"),
         provider=provider,
         model=model,
     )

@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # Каталог для загружаемых файлов (картинки источников и т.п.). Должен быть
     # на персистентном volume — см. docker-compose.yml (media_uploads).
     media_root: str = Field(default="/app/media", alias="MEDIA_ROOT")
+    prompts_root: str = Field(default="/app/server/prompts", alias="PROMPTS_ROOT")
 
     # ── Auth ─────────────────────────────────────────────────────────────────
     # Секрет для подписи JWT access-токенов (HS256). ОБЯЗАТЕЛЬНО переопределить

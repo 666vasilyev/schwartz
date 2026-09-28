@@ -12,6 +12,7 @@ COPY alembic.ini .
 COPY server/start.sh ./server/start.sh
 COPY server/app ./server/app
 COPY server/lemma ./server/lemma
+COPY server/prompts ./server/prompts
 
 RUN sed -i 's/\r$//' ./server/start.sh && chmod +x ./server/start.sh
 
