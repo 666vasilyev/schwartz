@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # Тот же секрет, что у collector; пустой — без заголовка Authorization (локальная разработка)
     collector_shared_secret: str = ""
 
+    # Каталог для загружаемых файлов (картинки источников и т.п.). Должен быть
+    # на персистентном volume — см. docker-compose.yml (media_uploads).
+    media_root: str = Field(default="/app/media", alias="MEDIA_ROOT")
+
     # ── Auth ─────────────────────────────────────────────────────────────────
     # Секрет для подписи JWT access-токенов (HS256). ОБЯЗАТЕЛЬНО переопределить
     # в .env для production — дефолт годится только для локальной разработки.

@@ -26,6 +26,7 @@ services:
     volumes:
       - hf_cache:/cache/huggingface
       - stanza_cache:/cache/stanza
+      - media_uploads:/app/media
     ports:
       - "8001:8000"
     depends_on:
@@ -72,3 +73,4 @@ services:
 volumes:
   hf_cache:
   stanza_cache:
+  media_uploads:

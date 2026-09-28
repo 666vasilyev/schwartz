@@ -137,6 +137,11 @@ class Source(Base):
         secondary=source_category_link, back_populates="sources"
     )
 
+    # Изображение источника (заглушка/лого для постов без своей картинки).
+    # Файл лежит на диске (MEDIA_ROOT/sources/<filename>), здесь только имя файла.
+    image_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    image_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     # Rich metadata fetched from the source (VK group info, RSS feed title, etc.)
     source_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
 

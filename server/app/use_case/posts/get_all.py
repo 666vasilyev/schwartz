@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.db.orm.models import Post
 from app.infrastructure.repositories.post import count_posts, list_posts
 from app.presentation.schemas.post import PostListResponse, PostRead
+from app.utils.source_image import build_source_image_url, extract_post_own_image_url
 
 
 def _build_post_url(post: Post, source_type: str | None, source_url: str | None = None) -> str | None:
@@ -52,10 +53,14 @@ async def execute(
         search=search,
     )
     items = []
-    for post, source_type, source_url in rows:
+    for post, source_type, source_url, source_image_filename, source_image_updated_at in rows:
         data = PostRead.model_validate(post)
         data.source_type = source_type
         data.url = _build_post_url(post, source_type, source_url)
+        # Если в самом посте нет картинки — отдаём картинку источника (fallback).
+        data.image_url = extract_post_own_image_url(post.attachments) or build_source_image_url(
+            post.source_id, source_image_filename, source_image_updated_at
+        )
         items.append(data)
     return PostListResponse(
         items=items,

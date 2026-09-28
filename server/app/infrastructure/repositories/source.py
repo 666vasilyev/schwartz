@@ -129,6 +129,8 @@ async def update_source(
     vk_owner_id: int | None | object = _OMIT,
     extra: dict | None | object = _OMIT,
     source_metadata: dict | None | object = _OMIT,
+    image_filename: str | None | object = _OMIT,
+    image_updated_at: datetime | None | object = _OMIT,
 ) -> Source | None:
     row = await get_source_by_id(db, source_id)
     if row is None:
@@ -162,6 +164,8 @@ async def update_source(
         "vk_owner_id": vk_owner_id,
         "extra": extra,
         "source_metadata": source_metadata,
+        "image_filename": image_filename,
+        "image_updated_at": image_updated_at,
     }
     for attr, value in fields.items():
         if value is not _OMIT:

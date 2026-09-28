@@ -22,6 +22,9 @@ class PostResponse(BaseModel):
     reactions: dict[str, Any] | None = None
     attachments: list[Any] | None = None
     payload: dict[str, Any] | None = None
+    image_url: str | None = Field(
+        None, description="Картинка поста, либо (если в посте своей нет) картинка источника"
+    )
 
     model_config = {"from_attributes": True}
 
@@ -40,6 +43,9 @@ class PostRead(BaseModel):
     reactions: dict[str, Any] | None = None
     attachments: list[Any] | None = None
     payload: dict[str, Any] | None = None
+    image_url: str | None = Field(
+        None, description="Картинка поста, либо (если в посте своей нет) картинка источника"
+    )
     created_at: datetime
 
     model_config = {"from_attributes": True}
