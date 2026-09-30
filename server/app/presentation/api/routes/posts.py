@@ -5,15 +5,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.services.content.lemma_scorer import LemmaLang
 from app.presentation.api.dependencies import get_current_user, get_session
 from app.presentation.schemas.post import PostListResponse, PostSummaryRequest, PostSummaryResponse
 from app.use_case.posts import export_posts as export_uc
 from app.use_case.posts import get_all as get_all_uc
 from app.use_case.posts import import_posts as import_uc
 from app.use_case.posts import summarize as summarize_uc
+from app.use_case.posts import summary_report as summary_report_uc
 
 router = APIRouter(prefix="/api/v1/posts", tags=["Posts"], dependencies=[Depends(get_current_user)])
 
@@ -63,6 +67,29 @@ async def summarize_posts(
     db: AsyncSession = Depends(get_session),
 ) -> PostSummaryResponse:
     return await summarize_uc.execute(db, body.post_ids)
+
+
+@router.post(
+    "/summary/report",
+    summary="Отчёт по выбранным новостям (саммари + ЦКМ-аналитика) — файл DOCX или PDF",
+)
+async def summary_report(
+    body: PostSummaryRequest,
+    fmt: Literal["docx", "pdf"] = Query(..., description="Формат отчёта"),
+    lang: LemmaLang = Query(
+        LemmaLang.ru, description="Словарь ЦКМ для аналитики: ru_ofs, ru_un, ru_ch, usa, usa_un, usa_ch, frg"
+    ),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    """
+    Тот же набор постов, что и в POST /summary (то же тело — post_ids, до 20
+    штук), но результат — готовый файл для скачивания, а не JSON: заголовок
+    Content-Disposition: attachment уже выставлен, фронту достаточно отдать
+    ответ как blob. Внутри — тот же LLM-вызов, что и в /summary (саммари не
+    считается дважды по-разному), плюс агрегированная ЦКМ-аналитика по той же
+    выборке постов (словарный метод, как в /analyze/lemma/*).
+    """
+    return await summary_report_uc.execute(db, body.post_ids, lang=lang, fmt=fmt)
 
 
 @router.get(

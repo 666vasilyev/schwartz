@@ -5,6 +5,13 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
+# fonts-dejavu-core — кириллический TTF-шрифт для генерации PDF-отчётов
+# (reportlab, см. app/application/services/content/report_pdf.py); встроенные
+# PDF-шрифты reportlab кириллицу не поддерживают вообще.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY server/requirements.txt .
 RUN pip install --no-cache-dir pip -U && pip install --no-cache-dir -r requirements.txt
 

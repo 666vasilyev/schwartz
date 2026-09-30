@@ -63,6 +63,25 @@ async def list_posts_by_ids(db: AsyncSession, post_ids: list[int]) -> list[Post]
     return list(result.scalars().all())
 
 
+async def list_posts_with_source_by_ids(
+    db: AsyncSession, post_ids: list[int]
+) -> list[tuple[Post, str | None, str | None, str | None]]:
+    """
+    Как list_posts_by_ids, но вместе с данными источника (тип/имя/url) — нужно
+    для отчёта по выборке постов (см. use_case/posts/summary_report.py), где
+    в таблице постов показывается источник и строится ссылка на пост.
+    Returns list of (Post, source_type, source_name, source_url).
+    """
+    if not post_ids:
+        return []
+    result = await db.execute(
+        select(Post, Source.source_type, Source.name, Source.url)
+        .outerjoin(Source, Post.source_id == Source.id)
+        .where(Post.id.in_(post_ids))
+    )
+    return list(result.all())
+
+
 async def list_posts_by_owner_id(db: AsyncSession, owner_id: int) -> list[Post]:
     """Посты стены, совпадающие с vk_owner_id источника."""
     result = await db.execute(

@@ -16,6 +16,9 @@ PyJWT>=2.8
 bcrypt>=4.1
 feedparser>=6.0
 python-multipart
+# Отчёты по выборке постов (DOCX/PDF) — см. use_case/posts/summary_report.py
+python-docx>=1.1
+reportlab>=4.0
 telethon>=1.36
 PySocks>=1.7
 # Vector store / clustering

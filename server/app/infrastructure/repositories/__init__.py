@@ -30,6 +30,7 @@ from .post import (
     list_posts_by_ids,
     list_posts_by_owner_id,
     list_posts_by_source_id,
+    list_posts_with_source_by_ids,
     save_post,
 )
 from .post_comment import replace_comments_from_vk_collect
@@ -124,6 +125,7 @@ __all__ = [
     "list_posts_by_ids",
     "list_posts_by_owner_id",
     "list_posts_by_source_id",
+    "list_posts_with_source_by_ids",
     "save_post",
     # comments
     "replace_comments_from_vk_collect",
