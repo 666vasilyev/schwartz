@@ -463,7 +463,7 @@ def list_lemma_categories(
 
 
 @router.post(
-    "/lemma/categories",
+    "/lemma/categories/action",
     response_model=LemmaCategoryActionResponse,
     summary="Добавить/снять категорию у леммы (action=add|remove; категория обязана уже существовать в словаре)",
 )
