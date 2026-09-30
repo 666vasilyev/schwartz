@@ -12,12 +12,23 @@ from typing import Any
 def build_source_image_url(
     source_id: int | None, filename: str | None, updated_at: datetime | None
 ) -> str | None:
+    """
+    Отдаётся как статика через nginx (см. nginx.conf: location ^~ /media/),
+    в обход бэкенда и его JWT-авторизации — раньше URL указывал на
+    GET /api/v1/sources/{id}/image, но этот эндпоинт защищён общей
+    авторизацией роутера sources, а браузер не может приложить
+    Authorization-заголовок к обычному <img src>. Картинки источников не
+    секретные, поэтому раздаём их как публичную статику напрямую с диска
+    (media_uploads volume, примонтированный в nginx как /var/www/media).
+    """
     if not filename or source_id is None:
         return None
     # ?v=<ts> — cache-busting: имя файла при перезаливке не меняется (source_id.ext),
-    # без версии в URL браузер мог бы продолжать отдавать из кэша старую картинку.
+    # а nginx кэширует такие URL агрессивно и надолго (immutable) — поэтому
+    # версия обязана быть частью самого URL, иначе браузер продолжит отдавать
+    # старую картинку из кэша после перезаливки.
     v = int(updated_at.timestamp()) if updated_at else 0
-    return f"/api/v1/sources/{source_id}/image?v={v}"
+    return f"/media/sources/{filename}?v={v}"
 
 
 def extract_post_own_image_url(attachments: Any) -> str | None:

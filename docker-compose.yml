@@ -64,6 +64,7 @@ services:
       - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - media_uploads:/var/www/media:ro
     depends_on:
       server:
         condition: service_started
