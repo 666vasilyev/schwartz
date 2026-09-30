@@ -57,6 +57,26 @@ class PostSummaryRequest(BaseModel):
     post_ids: list[int] = Field(..., min_length=1, max_length=20, description="ID постов (до 20 за раз)")
 
 
+class PostSummaryReportRequest(BaseModel):
+    """
+    Тело POST /api/v1/posts/summary/report.
+
+    title/summary/topics — опциональны: если summary передан (не пустой),
+    саммари берётся с экрана как есть и LLM повторно НЕ вызывается — так
+    отчёт гарантированно совпадает с тем, что человек уже видел после
+    POST /summary (в т.ч. если он сам отредактировал текст). Если summary не
+    передан — саммари строится заново тем же LLM-вызовом, что и в /summary
+    (обратная совместимость со старым поведением).
+    """
+
+    post_ids: list[int] = Field(..., min_length=1, max_length=20, description="ID постов (до 20 за раз)")
+    title: str | None = Field(
+        None, description="Заголовок с экрана (после POST /summary) — если передан вместе с summary, LLM не вызывается"
+    )
+    summary: str | None = Field(None, description="Текст саммари с экрана — если пуст, саммари строится заново через LLM")
+    topics: list[str] = Field(default_factory=list, description="Темы с экрана (используются только вместе с summary)")
+
+
 class PostSummaryResponse(BaseModel):
     title: str | None = Field(None, description="Короткий заголовок сюжета")
     summary: str | None = Field(None, description="Саммари в 1-3 предложениях")

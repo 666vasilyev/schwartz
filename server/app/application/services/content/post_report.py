@@ -55,8 +55,21 @@ async def build_post_report_data(
     lang: LemmaLang,
     posts_requested: int,
     missing_post_ids: list[int],
+    preset_title: str | None = None,
+    preset_summary: str | None = None,
+    preset_topics: list[str] | None = None,
 ) -> PostReportData:
-    """rows — (Post, source_type, source_name, source_url), в порядке выбора пользователя."""
+    """
+    rows — (Post, source_type, source_name, source_url), в порядке выбора пользователя.
+
+    preset_summary (и title/topics вместе с ним) — саммари, уже показанное
+    пользователю на экране (см. POST /api/v1/posts/summary): если передано,
+    LLM повторно НЕ вызывается, отчёт использует этот текст как есть — иначе
+    саммари в отчёте могло бы отличаться от того, что человек уже видел
+    (LLM не детерминирована) или отредактировал сам. ЦКМ-аналитика всегда
+    считается заново по текущим текстам постов — она не зависит от LLM и
+    проблемы рассинхронизации для неё нет.
+    """
     posts_meta: list[PostReportItem] = []
     texts: list[str] = []
 
@@ -77,15 +90,16 @@ async def build_post_report_data(
         if text:
             texts.append(text)
 
-    title: str | None = None
-    summary: str | None = None
-    topics: list[str] = []
+    if preset_summary:
+        title, summary, topics = preset_title, preset_summary, list(preset_topics or [])
+    elif texts:
+        title, summary, topics = await summarize_post_texts(texts)
+    else:
+        title, summary, topics = None, None, []
+
     schwartz: dict[str, float] = {k: 0.0 for k in CSV_COLUMNS}
     categories: dict[str, float] = {}
-
     if texts:
-        title, summary, topics = await summarize_post_texts(texts)
-
         vectors = []
         cat_freqs = []
         for text in texts:

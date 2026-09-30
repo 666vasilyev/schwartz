@@ -35,6 +35,9 @@ async def execute(
     *,
     lang: LemmaLang,
     fmt: Literal["docx", "pdf"],
+    preset_title: str | None = None,
+    preset_summary: str | None = None,
+    preset_topics: list[str] | None = None,
 ) -> Response:
     # dedupe, сохраняя порядок выбора пользователя (важно — см. summarize.py: тот
     # же порядок используется в промпте саммари и здесь же в таблице постов)
@@ -59,7 +62,13 @@ async def execute(
 
     try:
         data = await build_post_report_data(
-            ordered_rows, lang=lang, posts_requested=len(unique_ids), missing_post_ids=missing_ids
+            ordered_rows,
+            lang=lang,
+            posts_requested=len(unique_ids),
+            missing_post_ids=missing_ids,
+            preset_title=preset_title,
+            preset_summary=preset_summary,
+            preset_topics=preset_topics,
         )
     except Exception as exc:
         logger.warning("posts_summary_report_failed", post_ids=unique_ids, error=str(exc)[:300])
@@ -67,7 +76,11 @@ async def execute(
             status_code=status.HTTP_502_BAD_GATEWAY, detail="Не удалось получить саммари от LLM"
         ) from exc
 
-    if data.posts_used == 0:
+    # Если саммари уже дано с экрана — отчёт всё равно валиден, даже если по
+    # текущим текстам постов ЦКМ не посчиталась (например, посты успели
+    # измениться в БД). Без preset_summary саммари строится из этих же
+    # текстов, так что пустой набор текстов означает, что строить нечего.
+    if data.posts_used == 0 and not preset_summary:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Ни у одного из выбранных постов нет текста"
         )
