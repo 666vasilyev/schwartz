@@ -1,9 +1,20 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from app.application.services.content.lemma_scorer import LemmaLang
+from app.application.services.content.lemma_scorer import LemmaLang, split_categories
+
+
+def _coerce_categories(v: object) -> list[str]:
+    """Как и в NewLemmaItem (presentation/schemas/analysis.py) — список
+    категорий на входе и выходе, строка через ' / ' принимается для обратной
+    совместимости."""
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return split_categories(v)
+    return [str(c).strip() for c in v if str(c).strip()]
 
 
 class LemmaBufferAddItem(BaseModel):
@@ -25,7 +36,15 @@ class LemmaBufferWeightsItem(BaseModel):
 
     lemma: str = Field(..., min_length=1, description="Должна уже быть в буфере (см. action=add)")
     weights: dict[str, float] = Field(..., description="Вес 0.0–1.0 по каждому из 10 измерений ЦКМ")
-    category: str = Field("", description="Категория(и) через ' / ', как в CSV-словарях")
+    category: list[str] = Field(
+        default_factory=list,
+        description="Категории леммы (максимум 10). Строка через ' / ' на входе тоже принимается.",
+    )
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _validate_category(cls, v: object) -> list[str]:
+        return _coerce_categories(v)
 
 
 class LemmaBufferActionRequest(BaseModel):
@@ -102,7 +121,16 @@ class LemmaBufferItem(BaseModel):
     weights: dict[str, float] | None = Field(
         None, description="Веса ЦКМ, если уже сохранены (action=set_weights) — иначе null"
     )
-    category: str | None = Field(None, description="Категория, если уже сохранена — иначе null")
+    category: list[str] | None = Field(
+        None, description="Категории леммы, если уже сохранены (action=set_weights) — иначе null"
+    )
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _validate_category(cls, v: object) -> list[str] | None:
+        if v is None:
+            return None
+        return _coerce_categories(v)
     raw_text: str = Field(description="Последняя выделенная форма (может отличаться от lemma регистром/формой)")
     first_seen_at: datetime
     last_seen_at: datetime

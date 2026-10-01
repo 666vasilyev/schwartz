@@ -1,10 +1,10 @@
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.application.services.content.lemma_llm_extractor import TARGET_COUNT as _DEFAULT_LEMMA_COUNT
-from app.application.services.content.lemma_scorer import LemmaLang
+from app.application.services.content.lemma_scorer import LemmaLang, split_categories
 from app.presentation.schemas.cluster import TrendingClustersResponse
 from app.use_case.analyze._time_utils import TimeGranularity
 
@@ -64,6 +64,20 @@ class LemmaExtractRequest(BaseModel):
     model: str | None = Field(None, description="Модель LLM. По умолчанию — активная.")
 
 
+def _coerce_categories(v: object) -> list[str]:
+    """
+    Принимает категории леммы либо уже списком (нормальный случай), либо
+    старой строкой через ' / ' (как раньше хранилось и отдавалось в JSON, и
+    как до сих пор physически лежит в CSV-словарях/БД буфера) — для
+    обратной совместимости с запросами, которые ещё присылают строку.
+    """
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return split_categories(v)
+    return [str(c).strip() for c in v if str(c).strip()]
+
+
 class NewLemmaItem(BaseModel):
     """Одна кандидатная лемма с весами по 10 измерениям ЦКМ (порядок соответствует колонкам CSV)."""
 
@@ -72,7 +86,20 @@ class NewLemmaItem(BaseModel):
         ...,
         description="Вес 0.0–1.0 по каждому из 10 измерений ЦКМ (ключи — названия колонок CSV)",
     )
-    category: str = Field("", description="Категория(и) через ' / ', как в исходных CSV-словарях")
+    category: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Категории леммы (у одной леммы их может быть несколько, максимум 10 — "
+            "см. MAX_CATEGORIES_PER_LEMMA). Хранится в CSV-словаре как строка через "
+            "' / ' — на вход эту же строку тоже можно передать (обратная совместимость), "
+            "но в ответе всегда уже список."
+        ),
+    )
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _validate_category(cls, v: object) -> list[str]:
+        return _coerce_categories(v)
 
 
 class LemmaWeightsRequest(BaseModel):
@@ -163,7 +190,14 @@ class LemmaCategoryActionResponse(BaseModel):
     lang: LemmaLang
     action: Literal["add", "remove"]
     lemma: str
-    category: str = Field(description="Итоговая строка категорий леммы после операции (через ' / ')")
+    category: list[str] = Field(
+        default_factory=list, description="Итоговый список категорий леммы после операции"
+    )
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _validate_category(cls, v: object) -> list[str]:
+        return _coerce_categories(v)
 
 
 class LemmaAppendRequest(BaseModel):

@@ -788,7 +788,10 @@ def append_lemmas(
 
         weights = item.get("weights") or {}
         values = [_format_weight(weights.get(col, 0.0)) for col in CSV_COLUMNS]
-        category = str(item.get("category", "")).strip()
+        raw_category = item.get("category", "")
+        category = (
+            join_categories(raw_category) if isinstance(raw_category, (list, tuple)) else str(raw_category).strip()
+        )
         new_lines.append(";".join([lemma_raw, *values, category]))
 
     if not new_lines:
@@ -836,8 +839,17 @@ def append_lemmas(
 
 
 
-def _split_categories(raw: str) -> list[str]:
+def split_categories(raw: str) -> list[str]:
+    """Строка категорий леммы ('A / B'), как она хранится в CSV, в список ['A', 'B'].
+    Публичная — используется и здесь, и схемами Pydantic (NewLemmaItem и т.п.),
+    чтобы разбирать это поле одинаково на чтении и на записи."""
     return [c.strip() for c in raw.split("/") if c.strip()] if raw else []
+
+
+def join_categories(categories: list[str] | tuple[str, ...]) -> str:
+    """Обратная операция к split_categories — список категорий леммы в
+    строку для хранения в CSV ('A / B'). Пустые/пробельные элементы отсеиваются."""
+    return " / ".join(c.strip() for c in categories if c and c.strip())
 
 
 def _resolve_canonical_category(lang: LemmaLang, category: str) -> str:
@@ -878,7 +890,7 @@ def add_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
     if entry is None:
         raise LemmaNotFoundError(f"Леммы '{lemma}' нет в словаре '{lang.value}'")
 
-    current = _split_categories(entry["category"])
+    current = split_categories(entry["category"])
     already_has = canonical.casefold() in {c.casefold() for c in current}
     if not already_has and len(current) >= MAX_CATEGORIES_PER_LEMMA:
         raise TooManyLemmaCategoriesError(
@@ -908,7 +920,7 @@ def remove_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
     if entry is None:
         raise LemmaNotFoundError(f"Леммы '{lemma}' нет в словаре '{lang.value}'")
 
-    current = _split_categories(entry["category"])
+    current = split_categories(entry["category"])
     new_current = [c for c in current if c.casefold() != category.strip().casefold()]
     new_category = " / ".join(new_current)
 

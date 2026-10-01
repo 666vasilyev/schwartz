@@ -750,7 +750,11 @@ async def lemma_buffer_action(
             if not key:
                 continue
             ok = await set_buffer_weights(
-                db, user_id=current_user.id, lemma=key, weights=item.weights, category=item.category
+                db,
+                user_id=current_user.id,
+                lemma=key,
+                weights=item.weights,
+                category=lemma_scorer.join_categories(item.category),
             )
             if ok:
                 updated += 1
