@@ -75,6 +75,34 @@ class NewLemmaItem(BaseModel):
     category: str = Field("", description="Категория(и) через ' / ', как в исходных CSV-словарях")
 
 
+class LemmaWeightsRequest(BaseModel):
+    """
+    POST /analyze/lemma/weights — универсальный расчёт весов ЦКМ для готового
+    списка лемм, независимо от того, откуда они взялись (буфер выделений,
+    кандидаты из трендов, что угодно ещё). Замена GET
+    /lemma/trend-candidates/{lemma}/weights (deprecated) — тот же расчёт,
+    но на список, а не на одну лемму; для одной леммы достаточно передать
+    список из одного элемента.
+    """
+
+    lang: LemmaLang = Field(..., description="Словарь ЦКМ — от него зависит список категорий, предлагаемых LLM")
+    lemmas: list[str] = Field(..., min_length=1, max_length=50, description="Леммы для расчёта (до 50 за раз)")
+    provider: str | None = Field(None, description="Провайдер LLM. По умолчанию — активный.")
+    model: str | None = Field(None, description="Модель LLM. По умолчанию — активная.")
+
+
+class LemmaWeightsResponse(BaseModel):
+    lang: LemmaLang
+    results: list[NewLemmaItem] = Field(
+        default_factory=list,
+        description="Успешно рассчитанные {lemma, weights, category} — формат совпадает с /lemma/append",
+    )
+    failed: list[str] = Field(
+        default_factory=list,
+        description="Леммы, для которых LLM не вернула разбираемый ответ (можно повторить тем же вызовом)",
+    )
+
+
 class LemmaExtractResponse(BaseModel):
     """Кандидаты LLM на добавление в словарь — ничего не сохраняется, только предпросмотр."""
 

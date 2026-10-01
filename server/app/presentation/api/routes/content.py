@@ -50,6 +50,8 @@ from app.presentation.schemas.analysis import (
     LemmaSourcesRequest,
     LemmaTextRequest,
     LemmaTrendCandidatesResponse,
+    LemmaWeightsRequest,
+    LemmaWeightsResponse,
     LLMChatRequest,
     LLMChatResponse,
     LLMOverrideRequest,
@@ -77,6 +79,7 @@ from app.use_case.analyze import lemma_category_by_day as analyze_lemma_category
 from app.use_case.analyze import lemma_source as analyze_lemma_source
 from app.use_case.analyze import lemma_trend_candidates as analyze_lemma_trend_candidates
 from app.use_case.analyze import lemma_trend_weight as analyze_lemma_trend_weight
+from app.use_case.analyze import lemma_weights as analyze_lemma_weights
 from app.use_case.analyze import post as analyze_post
 
 router = APIRouter(prefix="/analyze", tags=["Content Analysis"], dependencies=[Depends(get_current_user)])
@@ -638,7 +641,8 @@ async def lemma_trend_candidates_endpoint(
 @router.get(
     "/lemma/trend-candidates/{lemma}/weights",
     response_model=NewLemmaItem,
-    summary="Веса ЦКМ и категория для одной леммы (lazy-load, обычно — из /lemma/trend-candidates)",
+    summary="[DEPRECATED, см. POST /lemma/weights] Веса ЦКМ и категория для одной леммы",
+    deprecated=True,
 )
 async def lemma_trend_candidate_weights(
     lemma: str,
@@ -647,13 +651,36 @@ async def lemma_trend_candidate_weights(
     model: str | None = Query(None, description="Модель LLM. По умолчанию — активная."),
 ) -> NewLemmaItem:
     """
-    Один вызов LLM — веса по 10 направлениям ЦКМ и категория для конкретной
-    леммы (обычно взятой из ответа /lemma/trend-candidates, но подойдёт любое
-    слово/словосочетание). Так вместо N последовательных LLM-вызовов на весь
-    список сразу считаются только те леммы, что реально интересны. Результат
-    можно передать в /lemma/append как есть.
+    DEPRECATED — используйте POST /lemma/weights с lemmas=[эта_лемма] (та же
+    логика, но универсальная — принимает список лемм из любого источника, не
+    только из /lemma/trend-candidates). Оставлена рабочей для обратной
+    совместимости, новых вызовов на неё заводить не нужно.
     """
     return await analyze_lemma_trend_weight.execute(lemma, lang, provider=provider, model=model)
+
+
+@router.post(
+    "/lemma/weights",
+    response_model=LemmaWeightsResponse,
+    summary="Веса ЦКМ и категория для списка лемм (универсально — буфер, тренды, что угодно ещё)",
+)
+async def lemma_weights(body: LemmaWeightsRequest) -> LemmaWeightsResponse:
+    """
+    Один вызов LLM на каждую лемму из `lemmas` (последовательно — см.
+    assign_weights_to_lemmas), веса по 10 направлениям ЦКМ + категория.
+    Леммы могут быть откуда угодно — из буфера выделений, из
+    /lemma/trend-candidates, введены вручную на фронте — ручка не привязана
+    к конкретному источнику. Для расчёта одной леммы — просто список из
+    одного элемента (замена deprecated GET /lemma/trend-candidates/{lemma}/weights).
+
+    Результат в `results` — в формате /lemma/append (lemma, weights,
+    category), можно передать туда как есть. Леммы, для которых LLM не дала
+    разбираемый ответ, — в `failed` (не включены в results, можно повторить
+    тем же вызовом).
+    """
+    return await analyze_lemma_weights.execute(
+        body.lemmas, body.lang, provider=body.provider, model=body.model
+    )
 
 
 @router.post(
