@@ -45,15 +45,22 @@ _CSV_FILENAMES: dict[LemmaLang, str] = {
     LemmaLang.ru: "ru_ofs.csv",
     LemmaLang.ru_un: "ru_un.csv",
     LemmaLang.ru_ch: "ru_ch.csv",
+    LemmaLang.ru_merged: "ru_merged.csv",
     LemmaLang.usa: "usa.csv",
     LemmaLang.usa_un: "usa_un.csv",
     LemmaLang.usa_ch: "usa_ch.csv",
+    LemmaLang.usa_merged: "usa_merged.csv",
     LemmaLang.frg: "frg.csv",
 }
 
-# Merged langs combine N base dictionaries; duplicate lemmas get averaged weights
-# (pairwise, folded left-to-right over all components — see _load_index).
-_MERGED_COMPONENTS: dict[LemmaLang, tuple[LemmaLang, ...]] = {
+# ИСТОРИЧЕСКОЕ: раньше ru_merged/usa_merged были вычисляемыми "на лету" словарями
+# (сумма/среднее трёх компонентов, без своего файла) — отсюда и название. Теперь
+# у них есть свой CSV (см. _CSV_FILENAMES выше) и они полностью независимы:
+# правки в ru_ofs/ru_un/ru_ch после миграции больше НЕ попадают в ru_merged.
+# Этот словарь используется только _migrate_legacy_merged_csv — один раз, чтобы
+# при первом обращении к ru_merged/usa_merged (если файла ещё нет) создать его,
+# взяв снимок того самого "вычисляемого" состояния на момент миграции.
+_LEGACY_MERGED_COMPONENTS: dict[LemmaLang, tuple[LemmaLang, ...]] = {
     LemmaLang.ru_merged: (LemmaLang.ru, LemmaLang.ru_un, LemmaLang.ru_ch),
     LemmaLang.usa_merged: (LemmaLang.usa, LemmaLang.usa_un, LemmaLang.usa_ch),
 }
@@ -91,7 +98,52 @@ def _find_in_lemma_dirs(filename: str, *, create: bool = False) -> Path:
 
 
 def _find_csv(lang: LemmaLang) -> Path:
+    if lang in _LEGACY_MERGED_COMPONENTS:
+        _migrate_legacy_merged_csv(lang)
     return _find_in_lemma_dirs(_CSV_FILENAMES[lang])
+
+
+def _migrate_legacy_merged_csv(lang: LemmaLang) -> None:
+    """
+    Миграция со старой схемы (ru_merged/usa_merged — вычисляемые на лету, без
+    своего файла) на новую (свой CSV, независимый от компонентов после
+    миграции) — см. docstring _LEGACY_MERGED_COMPONENTS. Срабатывает ровно
+    один раз: если файла для lang ещё нет ни в одной из _LEMMA_DIRS, строит
+    его содержимое так же, как раньше на лету считал _load_index (сумма
+    компонентов, дубли-леммы усреднены пофакторно — см. _merge_indexes), и
+    сохраняет как обычный CSV-файл. После этого lang — полностью независимый
+    словарь: дальнейшие правки в компонентах на него уже не влияют, его можно
+    читать/писать как любой другой словарь со своим файлом.
+    """
+    filename = _CSV_FILENAMES[lang]
+    if any((d / filename).exists() for d in _LEMMA_DIRS):
+        return  # уже мигрировано в прошлый раз
+
+    components = _LEGACY_MERGED_COMPONENTS[lang]
+    merged = _load_index(components[0])
+    for component in components[1:]:
+        merged = _merge_indexes(merged, _load_index(component))
+    single_dict, phrase_dict, _, categories_dict = merged
+
+    lemmas = sorted(set(single_dict) | set(phrase_dict))
+    lines = ["lemma;" + ";".join(CSV_COLUMNS) + ";category"]
+    for lemma in lemmas:
+        weights = single_dict.get(lemma) or phrase_dict.get(lemma) or {}
+        values = [_format_weight(weights.get(col, 0.0)) for col in CSV_COLUMNS]
+        category = " / ".join(categories_dict.get(lemma, []))
+        lines.append(";".join([lemma, *values, category]))
+
+    for d in _LEMMA_DIRS:
+        if d.exists():
+            (d / filename).write_text("\n".join(lines) + "\n", encoding="utf-8")
+            logger.info(
+                "lemma_merged_csv_migrated",
+                lang=lang.value,
+                components=[c.value for c in components],
+                lemma_count=len(lemmas),
+            )
+            return
+    raise FileNotFoundError(f"Не найдена ни одна из директорий словарей для миграции {filename}")
 
 
 def _clean_lemma(raw: str) -> str:
@@ -155,23 +207,9 @@ def _merge_indexes(idx_a: _Index, idx_b: _Index) -> _Index:
 
 @lru_cache(maxsize=16)
 def _load_index(lang: LemmaLang) -> _Index:
-    # Merged langs: combine N base indexes (folded pairwise, left-to-right)
-    if lang in _MERGED_COMPONENTS:
-        components = _MERGED_COMPONENTS[lang]
-        merged = _load_index(components[0])
-        for component in components[1:]:
-            merged = _merge_indexes(merged, _load_index(component))
-        single, phrase, _, _ = merged
-        logger.info(
-            "lemma_index_merged",
-            lang=lang.value,
-            components=[c.value for c in components],
-            single=len(single),
-            phrases=len(phrase),
-        )
-        return merged
-
-    # Base langs: load from CSV
+    # ru_merged/usa_merged больше не вычисляются на лету — у них свой CSV (см.
+    # _find_csv/_migrate_legacy_merged_csv), читаются ровно как любой другой
+    # словарь ниже.
     try:
         path = _find_csv(lang)
     except FileNotFoundError as exc:
@@ -701,7 +739,12 @@ def _format_weight(value: object) -> str:
 
 
 class MergedLangNotWritableError(ValueError):
-    """*_merged языки — вычисляемая комбинация двух словарей, своего CSV-файла нет."""
+    """
+    Больше не используется для ru_merged/usa_merged — у них теперь свой CSV-файл
+    (см. _migrate_legacy_merged_csv), пишутся как обычный словарь. Класс оставлен
+    только для совместимости except-блоков в routes/content.py и на случай, если
+    в будущем снова появится по-настоящему вычисляемый (без своего файла) словарь.
+    """
 
 
 # Эталонные базовые словари — заморожены по требованию: правки (upsert через
@@ -756,10 +799,9 @@ def append_lemmas(
     индекса сбрасывается — следующий score_text/extract_new_lemmas увидит
     обновлённые значения.
     """
-    if lang in _MERGED_COMPONENTS:
-        raise MergedLangNotWritableError(
-            f"'{lang.value}' — вычисляемый merged-словарь (сумма двух других), нет своего CSV-файла"
-        )
+    # ru_merged/usa_merged больше не блокируются здесь — у них свой CSV (см.
+    # _migrate_legacy_merged_csv), пишутся как любой другой словарь, если не
+    # заморожены (ни один из них в _FROZEN_LANGS не входит).
     if lang in _FROZEN_LANGS:
         raise FrozenLangNotWritableError(
             f"'{lang.value}' — эталонный словарь, добавление и редактирование лемм запрещено на уровне сервера"
@@ -883,7 +925,8 @@ def add_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
 
     Возвращает обновлённую запись {lemma, weights, category}. Пишет через
     append_lemmas — соответственно, тоже уважает заморозку словарей
-    (MergedLangNotWritableError/FrozenLangNotWritableError).
+    (FrozenLangNotWritableError; ru_merged/usa_merged больше не блокируются —
+    см. _migrate_legacy_merged_csv).
     """
     canonical = _resolve_canonical_category(lang, category)
     entry = get_lemma(lang, lemma)

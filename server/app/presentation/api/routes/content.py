@@ -398,7 +398,12 @@ def _append_lemmas_to_csv(
 async def append_lemma_candidates(
     body: LemmaAppendRequest,
     lang: LemmaLang = Query(
-        ..., description="Словарь для записи: ru_ofs, ru_un, ru_ch, usa, usa_un, usa_ch, frg (merged — вычисляемые, только для чтения)"
+        ...,
+        description=(
+            "Словарь для записи: ru_ofs, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, "
+            "usa_merged, frg — ru_ofs/ru_un/usa/usa_un/frg заморожены (403, см. FrozenLangNotWritableError), "
+            "остальные (включая ru_merged/usa_merged — у них теперь свой CSV, не вычисляемые) пишутся как обычно"
+        ),
     ),
     overwrite_existing: bool = Query(
         True,
@@ -473,7 +478,7 @@ def list_lemma_categories(
 def lemma_category_action(
     body: LemmaCategoryActionRequest,
     lang: LemmaLang = Query(
-        ..., description="Словарь: ru_ofs, ru_un, ru_ch, usa, usa_un, usa_ch, frg (merged — только чтение)"
+        ..., description="Словарь: ru_ofs, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg"
     ),
 ) -> LemmaCategoryActionResponse:
     """
@@ -481,9 +486,9 @@ def lemma_category_action(
     же паттерн, что и POST /lemma/blacklist и POST /sources/{id}/action.
 
     Пишет в тот же CSV-словарь, что и /lemma/append (через append_lemmas), и
-    подчиняется тем же ограничениям: merged-словари (ru_merged, usa_merged) —
-    вычисляемые, без своего файла (422); ru_ofs/ru_un/usa/usa_un/frg заморожены
-    на уровне сервера (403). Категория, которой ещё нет ни у одной леммы
+    подчиняется тем же ограничениям: ru_ofs/ru_un/usa/usa_un/frg заморожены
+    на уровне сервера (403); ru_merged/usa_merged — у них свой CSV (больше не
+    вычисляемые на лету), пишутся как любой другой словарь. Категория, которой ещё нет ни у одной леммы
     словаря, отклоняется (422) — новые категории через эту ручку не
     создаются, только переиспользуются существующие (см. GET /lemma/categories).
     У одной леммы не может быть больше 10 категорий одновременно (422, если

@@ -5,13 +5,15 @@
 изолированном слове/словосочетании, как оно приходит в append/extract/
 trend-candidates, а не на целом тексте):
 
-  - ru_ofs, ru_un, ru_ch — spaCy ru_core_news_sm (см. lemmatizer/ru.py)
-  - usa, usa_un, usa_ch — Stanza (en) (см. lemmatizer/en.py)
+  - ru_ofs, ru_un, ru_ch, ru_merged — spaCy ru_core_news_sm (см. lemmatizer/ru.py)
+  - usa, usa_un, usa_ch, usa_merged — Stanza (en) (см. lemmatizer/en.py)
   - frg — spaCy de_core_news_sm + germalemma (см. lemmatizer/de.py)
 
-ru_merged/usa_merged — вычисляемые словари, лемм в них напрямую не пишут
-(см. MergedLangNotWritableError в lemma_scorer.append_lemmas), поэтому для
-них лемматизация не требуется — текст возвращается как есть.
+ru_merged/usa_merged раньше были вычисляемыми словарями без своего файла и
+лемматизация для них не требовалась (текст возвращался как есть). Теперь у
+них свой CSV (см. lemma_scorer._migrate_legacy_merged_csv), пишут в них
+напрямую — лемматизируются тем же стеком, что и их бывшие компоненты
+(ru_merged — русский, usa_merged — английский).
 
 Модели грузятся лениво, синглтоном на процесс — тот же паттерн, что и в
 embedder.py для sentence-transformers.
@@ -29,11 +31,11 @@ def lemmatize(text: str, lang: LemmaLang) -> str:
     if not stripped:
         return text
 
-    if lang in (LemmaLang.ru, LemmaLang.ru_un, LemmaLang.ru_ch):
+    if lang in (LemmaLang.ru, LemmaLang.ru_un, LemmaLang.ru_ch, LemmaLang.ru_merged):
         from app.application.services.content.lemmatizer.ru import lemmatize_ru
 
         return lemmatize_ru(stripped)
-    if lang in (LemmaLang.usa, LemmaLang.usa_un, LemmaLang.usa_ch):
+    if lang in (LemmaLang.usa, LemmaLang.usa_un, LemmaLang.usa_ch, LemmaLang.usa_merged):
         from app.application.services.content.lemmatizer.en import lemmatize_en
 
         return lemmatize_en(stripped)
@@ -42,5 +44,4 @@ def lemmatize(text: str, lang: LemmaLang) -> str:
 
         return lemmatize_de(stripped)
 
-    # ru_merged / usa_merged — вычисляемые, не пишутся напрямую
     return stripped
