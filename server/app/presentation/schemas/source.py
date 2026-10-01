@@ -252,7 +252,16 @@ SourceAction = Literal[
 class SourceActionRequest(BaseModel):
     """Единый запрос на действие над источником."""
 
-    action: SourceAction
+    action: SourceAction = Field(
+        ...,
+        description=(
+            "enable | disable | pause | reset_error | fetch | fetch_history | fetch_incremental. "
+            "'pause' — DEPRECATED, оставлен для обратной совместимости: по смыслу почти то же самое, "
+            "что 'disable' (оба останавливают автосбор), но 'disable' работает из большего числа "
+            "статусов (в т.ч. из blocked, 'pause' из blocked — 409) и однозначно про 'выключено', "
+            "а не 'временно'. Новым интеграциям — использовать 'disable'."
+        ),
+    )
 
     # ── параметры для fetch-действий (игнорируются при status-переходах) ──
     limit: int | None = Field(None, ge=1, le=50_000, description="Лимит постов (fetch/*)")

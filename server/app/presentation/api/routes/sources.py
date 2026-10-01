@@ -269,7 +269,7 @@ async def get_source_image(
     response_model=SourceActionResponse,
     summary=(
         "Действие над источником: "
-        "enable | disable | pause | reset_error | fetch | fetch_history | fetch_incremental"
+        "enable | disable | pause (DEPRECATED, см. ниже) | reset_error | fetch | fetch_history | fetch_incremental"
     ),
 )
 async def source_action(
@@ -277,6 +277,15 @@ async def source_action(
     body: SourceActionRequest = ...,
     db: AsyncSession = Depends(get_session),
 ) -> SourceActionResponse:
+    """
+    action='pause' — DEPRECATED, оставлен рабочим для обратной совместимости.
+    Для простого интерфейса (включено/выключено) используйте 'disable' —
+    он покрывает тот же сценарий (источник не участвует в автосборе) и
+    работает из большего числа статусов (в т.ч. из blocked, где 'pause'
+    вернёт 409). 'pause' отличается только тем, что считается "здоровым"
+    статусом в GET /{source_id}/health — если это не нужно, 'disable'
+    полностью заменяет 'pause'.
+    """
     return await action_uc.execute(db, source_id, body)
 
 
