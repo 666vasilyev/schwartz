@@ -3,9 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from app.infrastructure.db.orm.models import SourceStatus, SourceType
+from app.utils.source_image import build_source_image_url
 
 
 # ── Request schemas ────────────────────────────────────────────────────────
@@ -101,6 +102,9 @@ class SourceRead(BaseModel):
     owner_id: int | None = None
     category_names: list[str] = Field(default_factory=list)
     source_metadata: dict | None = None
+    # Сырые поля картинки не отдаём наружу — наружу торчит только image_url.
+    image_filename: str | None = Field(None, exclude=True)
+    image_updated_at: datetime | None = Field(None, exclude=True)
     # Legacy
     last_run_at: datetime | None = None
     error_message: str | None = None
@@ -111,6 +115,11 @@ class SourceRead(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def image_url(self) -> str | None:
+        return build_source_image_url(self.id, self.image_filename, self.image_updated_at)
 
     @model_validator(mode="before")
     @classmethod
@@ -243,7 +252,16 @@ SourceAction = Literal[
 class SourceActionRequest(BaseModel):
     """Единый запрос на действие над источником."""
 
-    action: SourceAction
+    action: SourceAction = Field(
+        ...,
+        description=(
+            "enable | disable | pause | reset_error | fetch | fetch_history | fetch_incremental. "
+            "'pause' — DEPRECATED, оставлен для обратной совместимости: по смыслу почти то же самое, "
+            "что 'disable' (оба останавливают автосбор), но 'disable' работает из большего числа "
+            "статусов (в т.ч. из blocked, 'pause' из blocked — 409) и однозначно про 'выключено', "
+            "а не 'временно'. Новым интеграциям — использовать 'disable'."
+        ),
+    )
 
     # ── параметры для fetch-действий (игнорируются при status-переходах) ──
     limit: int | None = Field(None, ge=1, le=50_000, description="Лимит постов (fetch/*)")

@@ -18,7 +18,17 @@ from app.presentation.schemas.collection_job import FetchRequest, HistoricalFetc
 from app.presentation.schemas.source import SourceActionRequest, SourceActionResponse, SourceRead
 from app.use_case.collection import jobs as jobs_uc
 
-# Целевой статус для каждого status-действия
+# Целевой статус для каждого status-действия.
+#
+# 'pause' — DEPRECATED (оставлен работающим для обратной совместимости,
+# фронту рекомендуем 'disable'). Разница между ними — чисто смысловая:
+# планировщик (collection_job/schedule) исключает paused и disabled
+# одинаково, из автосбора оба выпадают без различий. Отличия только в
+# том, что видно снаружи:
+#   - из каких статусов можно перейти — pause запрещён из blocked (409),
+#     disable из blocked разрешён (см. _FORBIDDEN ниже);
+#   - health-статистика (use_case/sources/health.py) считает paused
+#     "здоровым" статусом, а disabled — нет.
 _TARGET_STATUS: dict[str, SourceStatus] = {
     "enable": SourceStatus.ACTIVE,
     "disable": SourceStatus.DISABLED,

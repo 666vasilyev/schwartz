@@ -1,10 +1,10 @@
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.application.services.content.lemma_llm_extractor import TARGET_COUNT as _DEFAULT_LEMMA_COUNT
-from app.application.services.content.lemma_scorer import LemmaLang
+from app.application.services.content.lemma_scorer import LemmaLang, split_categories
 from app.presentation.schemas.cluster import TrendingClustersResponse
 from app.use_case.analyze._time_utils import TimeGranularity
 
@@ -64,6 +64,20 @@ class LemmaExtractRequest(BaseModel):
     model: str | None = Field(None, description="Модель LLM. По умолчанию — активная.")
 
 
+def _coerce_categories(v: object) -> list[str]:
+    """
+    Принимает категории леммы либо уже списком (нормальный случай), либо
+    старой строкой через ' / ' (как раньше хранилось и отдавалось в JSON, и
+    как до сих пор physически лежит в CSV-словарях/БД буфера) — для
+    обратной совместимости с запросами, которые ещё присылают строку.
+    """
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return split_categories(v)
+    return [str(c).strip() for c in v if str(c).strip()]
+
+
 class NewLemmaItem(BaseModel):
     """Одна кандидатная лемма с весами по 10 измерениям ЦКМ (порядок соответствует колонкам CSV)."""
 
@@ -72,7 +86,48 @@ class NewLemmaItem(BaseModel):
         ...,
         description="Вес 0.0–1.0 по каждому из 10 измерений ЦКМ (ключи — названия колонок CSV)",
     )
-    category: str = Field("", description="Категория(и) через ' / ', как в исходных CSV-словарях")
+    category: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Категории леммы (у одной леммы их может быть несколько, максимум 10 — "
+            "см. MAX_CATEGORIES_PER_LEMMA). Хранится в CSV-словаре как строка через "
+            "' / ' — на вход эту же строку тоже можно передать (обратная совместимость), "
+            "но в ответе всегда уже список."
+        ),
+    )
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _validate_category(cls, v: object) -> list[str]:
+        return _coerce_categories(v)
+
+
+class LemmaWeightsRequest(BaseModel):
+    """
+    POST /analyze/lemma/weights — универсальный расчёт весов ЦКМ для готового
+    списка лемм, независимо от того, откуда они взялись (буфер выделений,
+    кандидаты из трендов, что угодно ещё). Замена GET
+    /lemma/trend-candidates/{lemma}/weights (deprecated) — тот же расчёт,
+    но на список, а не на одну лемму; для одной леммы достаточно передать
+    список из одного элемента.
+    """
+
+    lang: LemmaLang = Field(..., description="Словарь ЦКМ — от него зависит список категорий, предлагаемых LLM")
+    lemmas: list[str] = Field(..., min_length=1, max_length=50, description="Леммы для расчёта (до 50 за раз)")
+    provider: str | None = Field(None, description="Провайдер LLM. По умолчанию — активный.")
+    model: str | None = Field(None, description="Модель LLM. По умолчанию — активная.")
+
+
+class LemmaWeightsResponse(BaseModel):
+    lang: LemmaLang
+    results: list[NewLemmaItem] = Field(
+        default_factory=list,
+        description="Успешно рассчитанные {lemma, weights, category} — формат совпадает с /lemma/append",
+    )
+    failed: list[str] = Field(
+        default_factory=list,
+        description="Леммы, для которых LLM не вернула разбираемый ответ (можно повторить тем же вызовом)",
+    )
 
 
 class LemmaExtractResponse(BaseModel):
@@ -101,6 +156,48 @@ class LemmaListResponse(BaseModel):
     offset: int
     limit: int
     lemmas: list[NewLemmaItem] = Field(default_factory=list, description="Страница строк, отсортировано по лемме")
+
+
+class LemmaCategoryListResponse(BaseModel):
+    """Категории лемм словаря — GET /lemma/categories. Максимум 10 штук за один запрос (см. limit)."""
+
+    lang: LemmaLang
+    total: int = Field(description="Всего уникальных категорий в словаре")
+    offset: int
+    limit: int
+    categories: list[str] = Field(
+        default_factory=list, description="Страница категорий, по алфавиту (не больше limit за раз)"
+    )
+
+
+class LemmaCategoryActionRequest(BaseModel):
+    """
+    Единая ручка на изменение категорий лемм — action выбирает операцию (тот
+    же паттерн, что и POST /lemma/blacklist). Категория обязана уже
+    существовать в словаре (см. GET /lemma/categories) — придумывать новые
+    категории нельзя, можно только назначать/снимать с леммы уже
+    существующие.
+    """
+
+    action: Literal["add", "remove"]
+    lemma: str = Field(..., min_length=1, description="Лемма, уже существующая в словаре lang")
+    category: str = Field(
+        ..., min_length=1, description="Категория — должна уже быть в GET /lemma/categories?lang=..."
+    )
+
+
+class LemmaCategoryActionResponse(BaseModel):
+    lang: LemmaLang
+    action: Literal["add", "remove"]
+    lemma: str
+    category: list[str] = Field(
+        default_factory=list, description="Итоговый список категорий леммы после операции"
+    )
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def _validate_category(cls, v: object) -> list[str]:
+        return _coerce_categories(v)
 
 
 class LemmaAppendRequest(BaseModel):
@@ -183,6 +280,21 @@ class LemmaParameterCountsResponse(BaseModel):
     lang: LemmaLang
     counts: dict[str, int] = Field(
         description="Ключ — имя параметра ЦКМ (см. CSV_COLUMNS в lemma_scorer.py), значение — сколько лемм словаря имеют по нему ненулевой вес"
+    )
+
+
+class LemmaCategoryCount(BaseModel):
+    category: str
+    count: int = Field(description="Сколько лемм словаря несут эту категорию")
+
+
+class LemmaCategoryCountsResponse(BaseModel):
+    """Подсчёт лемм словаря lang по категориям — топ используемых, по убыванию count."""
+
+    lang: LemmaLang
+    total_categories: int = Field(description="Сколько всего разных категорий в словаре (до обрезки до limit)")
+    counts: list[LemmaCategoryCount] = Field(
+        default_factory=list, description="Топ категорий по убыванию количества лемм (не больше limit)"
     )
 
 

@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 CSV_COLUMNS: tuple[str, ...] = (
     "Безопасность",
     "Социальная интегрированность",
-    "Амбиозность",
+    "Амбициозность",
     "Индивидуальность",
     "Рациональность",
     "Красота",
@@ -30,7 +30,7 @@ CSV_COLUMNS: tuple[str, ...] = (
 
 
 class LemmaLang(str, Enum):
-    ru = "ru"
+    ru = "ru_ofs"
     ru_un = "ru_un"
     ru_ch = "ru_ch"
     ru_merged = "ru_merged"
@@ -42,18 +42,25 @@ class LemmaLang(str, Enum):
 
 
 _CSV_FILENAMES: dict[LemmaLang, str] = {
-    LemmaLang.ru: "ru.csv",
+    LemmaLang.ru: "ru_ofs.csv",
     LemmaLang.ru_un: "ru_un.csv",
     LemmaLang.ru_ch: "ru_ch.csv",
+    LemmaLang.ru_merged: "ru_merged.csv",
     LemmaLang.usa: "usa.csv",
     LemmaLang.usa_un: "usa_un.csv",
     LemmaLang.usa_ch: "usa_ch.csv",
+    LemmaLang.usa_merged: "usa_merged.csv",
     LemmaLang.frg: "frg.csv",
 }
 
-# Merged langs combine N base dictionaries; duplicate lemmas get averaged weights
-# (pairwise, folded left-to-right over all components — see _load_index).
-_MERGED_COMPONENTS: dict[LemmaLang, tuple[LemmaLang, ...]] = {
+# ИСТОРИЧЕСКОЕ: раньше ru_merged/usa_merged были вычисляемыми "на лету" словарями
+# (сумма/среднее трёх компонентов, без своего файла) — отсюда и название. Теперь
+# у них есть свой CSV (см. _CSV_FILENAMES выше) и они полностью независимы:
+# правки в ru_ofs/ru_un/ru_ch после миграции больше НЕ попадают в ru_merged.
+# Этот словарь используется только _migrate_legacy_merged_csv — один раз, чтобы
+# при первом обращении к ru_merged/usa_merged (если файла ещё нет) создать его,
+# взяв снимок того самого "вычисляемого" состояния на момент миграции.
+_LEGACY_MERGED_COMPONENTS: dict[LemmaLang, tuple[LemmaLang, ...]] = {
     LemmaLang.ru_merged: (LemmaLang.ru, LemmaLang.ru_un, LemmaLang.ru_ch),
     LemmaLang.usa_merged: (LemmaLang.usa, LemmaLang.usa_un, LemmaLang.usa_ch),
 }
@@ -91,7 +98,52 @@ def _find_in_lemma_dirs(filename: str, *, create: bool = False) -> Path:
 
 
 def _find_csv(lang: LemmaLang) -> Path:
+    if lang in _LEGACY_MERGED_COMPONENTS:
+        _migrate_legacy_merged_csv(lang)
     return _find_in_lemma_dirs(_CSV_FILENAMES[lang])
+
+
+def _migrate_legacy_merged_csv(lang: LemmaLang) -> None:
+    """
+    Миграция со старой схемы (ru_merged/usa_merged — вычисляемые на лету, без
+    своего файла) на новую (свой CSV, независимый от компонентов после
+    миграции) — см. docstring _LEGACY_MERGED_COMPONENTS. Срабатывает ровно
+    один раз: если файла для lang ещё нет ни в одной из _LEMMA_DIRS, строит
+    его содержимое так же, как раньше на лету считал _load_index (сумма
+    компонентов, дубли-леммы усреднены пофакторно — см. _merge_indexes), и
+    сохраняет как обычный CSV-файл. После этого lang — полностью независимый
+    словарь: дальнейшие правки в компонентах на него уже не влияют, его можно
+    читать/писать как любой другой словарь со своим файлом.
+    """
+    filename = _CSV_FILENAMES[lang]
+    if any((d / filename).exists() for d in _LEMMA_DIRS):
+        return  # уже мигрировано в прошлый раз
+
+    components = _LEGACY_MERGED_COMPONENTS[lang]
+    merged = _load_index(components[0])
+    for component in components[1:]:
+        merged = _merge_indexes(merged, _load_index(component))
+    single_dict, phrase_dict, _, categories_dict = merged
+
+    lemmas = sorted(set(single_dict) | set(phrase_dict))
+    lines = ["lemma;" + ";".join(CSV_COLUMNS) + ";category"]
+    for lemma in lemmas:
+        weights = single_dict.get(lemma) or phrase_dict.get(lemma) or {}
+        values = [_format_weight(weights.get(col, 0.0)) for col in CSV_COLUMNS]
+        category = " / ".join(categories_dict.get(lemma, []))
+        lines.append(";".join([lemma, *values, category]))
+
+    for d in _LEMMA_DIRS:
+        if d.exists():
+            (d / filename).write_text("\n".join(lines) + "\n", encoding="utf-8")
+            logger.info(
+                "lemma_merged_csv_migrated",
+                lang=lang.value,
+                components=[c.value for c in components],
+                lemma_count=len(lemmas),
+            )
+            return
+    raise FileNotFoundError(f"Не найдена ни одна из директорий словарей для миграции {filename}")
 
 
 def _clean_lemma(raw: str) -> str:
@@ -155,23 +207,9 @@ def _merge_indexes(idx_a: _Index, idx_b: _Index) -> _Index:
 
 @lru_cache(maxsize=16)
 def _load_index(lang: LemmaLang) -> _Index:
-    # Merged langs: combine N base indexes (folded pairwise, left-to-right)
-    if lang in _MERGED_COMPONENTS:
-        components = _MERGED_COMPONENTS[lang]
-        merged = _load_index(components[0])
-        for component in components[1:]:
-            merged = _merge_indexes(merged, _load_index(component))
-        single, phrase, _, _ = merged
-        logger.info(
-            "lemma_index_merged",
-            lang=lang.value,
-            components=[c.value for c in components],
-            single=len(single),
-            phrases=len(phrase),
-        )
-        return merged
-
-    # Base langs: load from CSV
+    # ru_merged/usa_merged больше не вычисляются на лету — у них свой CSV (см.
+    # _find_csv/_migrate_legacy_merged_csv), читаются ровно как любой другой
+    # словарь ниже.
     try:
         path = _find_csv(lang)
     except FileNotFoundError as exc:
@@ -395,6 +433,27 @@ def existing_lemmas(lang: LemmaLang) -> set[str]:
     return set(single_dict) | set(phrase_dict)
 
 
+def get_lemma(lang: LemmaLang, lemma: str) -> dict | None:
+    """
+    Одна лемма словаря `lang` целиком — {lemma, weights, category} — по точному
+    совпадению (после нормализации, как в append_lemmas/existing_lemmas). None,
+    если такой леммы в словаре нет. Используется для точечных операций вроде
+    add_lemma_category/remove_lemma_category, где нужно взять текущие
+    weights/category леммы перед перезаписью строки в CSV.
+    """
+    key = _clean_lemma(lemma)
+    if not key:
+        return None
+    single_dict, phrase_dict, _pattern, categories_dict = _load_index(lang)
+    weights = single_dict.get(key)
+    if weights is None:
+        weights = phrase_dict.get(key)
+    if weights is None:
+        return None
+    category = " / ".join(categories_dict.get(key, []))
+    return {"lemma": key, "weights": dict(weights), "category": category}
+
+
 def list_categories(lang: LemmaLang) -> list[str]:
     """
     Канонический список категорий словаря `lang`: все уникальные непустые теги
@@ -431,6 +490,28 @@ def count_lemmas_by_parameter(lang: LemmaLang) -> dict[str, int]:
         for col in CSV_COLUMNS:
             if weights.get(col, 0.0) > 0:
                 counts[col] += 1
+    return counts
+
+
+def count_lemmas_by_category(lang: LemmaLang) -> dict[str, int]:
+    """
+    Сколько лемм словаря `lang` несёт каждую категорию (лемма с несколькими
+    категориями учитывается в каждой из них; повтор одной категории у одной
+    леммы считается один раз). Категории уже в canonical-форме (casefold —
+    так они хранятся в categories_dict после _load_index), "nan"-мусор
+    отфильтрован, как и в list_categories.
+
+    Не отсортировано и не обрезано — топ-N считает вызывающий код (см. route
+    GET /lemma/categories/counts), здесь только сырые счётчики по всему словарю.
+    """
+    _single, _phrase, _pattern, categories_dict = _load_index(lang)
+    counts: dict[str, int] = {}
+    for cat_list in categories_dict.values():
+        for c in set(cat_list):
+            c = c.strip()
+            if not c or c == "nan":
+                continue
+            counts[c] = counts.get(c, 0) + 1
     return counts
 
 
@@ -509,9 +590,53 @@ def _load_blacklist_raw() -> frozenset[str]:
     return frozenset(_clean_lemma(line) for line in lines if line.strip())
 
 
-def list_blacklist() -> list[str]:
-    """Общий (на все языки) чёрный список лемм, отсортированный по алфавиту."""
-    return sorted(_load_blacklist_raw())
+_CYRILLIC_CHARS_RE = re.compile(r"[а-яё]", re.IGNORECASE)
+_GERMAN_ONLY_CHARS_RE = re.compile(r"[äöüß]", re.IGNORECASE)
+_LATIN_CHARS_RE = re.compile(r"[a-z]", re.IGNORECASE)
+
+
+def detect_lemma_lang(lemma: str) -> str | None:
+    """
+    Грубое определение языка леммы по алфавиту символов — без словарей и
+    внешних библиотек, просто по регуляркам (в порядке проверки):
+      - есть кириллица (а-я/ё) → "ru";
+      - иначе есть немецкие спецсимволы (äöüß) → "de";
+      - иначе есть латиница (a-z) → "en";
+      - иначе (лемма вообще без букв — цифры/пунктуация) → None.
+
+    Эвристика, не лингвистический анализ: обычное английское слово без
+    умляутов детектится как "en", даже если по смыслу это может быть
+    заимствование из немецкого — этого и не требовалось.
+    """
+    if _CYRILLIC_CHARS_RE.search(lemma):
+        return "ru"
+    if _GERMAN_ONLY_CHARS_RE.search(lemma):
+        return "de"
+    if _LATIN_CHARS_RE.search(lemma):
+        return "en"
+    return None
+
+
+def list_blacklist(*, search: str | None = None, word_lang: str | None = None) -> list[str]:
+    """
+    Общий (на все языки) чёрный список лемм, отсортированный по алфавиту.
+
+    search — подстрока для фильтра по лемме (регистронезависимо), как в
+    list_lemmas.
+    word_lang — фильтр по языку леммы: "ru" / "en" / "de", см.
+    detect_lemma_lang. Леммы без букв под фильтр по языку не попадают ни в
+    одну категорию.
+    """
+    lemmas = sorted(_load_blacklist_raw())
+
+    if word_lang:
+        lemmas = [lemma for lemma in lemmas if detect_lemma_lang(lemma) == word_lang]
+
+    if search:
+        needle = search.strip().casefold()
+        lemmas = [lemma for lemma in lemmas if needle in lemma.casefold()]
+
+    return lemmas
 
 
 def is_blacklisted(lemma: str) -> bool:
@@ -614,7 +739,42 @@ def _format_weight(value: object) -> str:
 
 
 class MergedLangNotWritableError(ValueError):
-    """*_merged языки — вычисляемая комбинация двух словарей, своего CSV-файла нет."""
+    """
+    Больше не используется для ru_merged/usa_merged — у них теперь свой CSV-файл
+    (см. _migrate_legacy_merged_csv), пишутся как обычный словарь. Класс оставлен
+    только для совместимости except-блоков в routes/content.py и на случай, если
+    в будущем снова появится по-настоящему вычисляемый (без своего файла) словарь.
+    """
+
+
+# Эталонные базовые словари — заморожены по требованию: правки (upsert через
+# append_lemmas, что покрывает и добавление новых лемм, и редактирование весов
+# уже существующих) на уровне сервера запрещены независимо от того, кто и как
+# вызывает API. ru_ch/usa_ch и merged-словари сюда не входят и остаются
+# редактируемыми как раньше.
+_FROZEN_LANGS: frozenset[LemmaLang] = frozenset(
+    {LemmaLang.ru, LemmaLang.ru_un, LemmaLang.usa, LemmaLang.usa_un, LemmaLang.frg}
+)
+
+
+class FrozenLangNotWritableError(ValueError):
+    """Эталонный словарь заморожен — добавление и редактирование лемм запрещено на уровне сервера."""
+
+
+class LemmaNotFoundError(ValueError):
+    """Леммы нет в словаре — операции над категориями возможны только для уже существующих лемм."""
+
+
+class UnknownLemmaCategoryError(ValueError):
+    """
+    Категория не входит в список уже существующих категорий словаря
+    (list_categories) — по требованию, новые категории через этот механизм
+    создавать нельзя, можно только назначать/снимать уже существующие.
+    """
+
+
+class TooManyLemmaCategoriesError(ValueError):
+    """У леммы уже максимум категорий (MAX_CATEGORIES_PER_LEMMA) — сначала нужно снять одну (action=remove)."""
 
 
 def append_lemmas(
@@ -639,9 +799,12 @@ def append_lemmas(
     индекса сбрасывается — следующий score_text/extract_new_lemmas увидит
     обновлённые значения.
     """
-    if lang in _MERGED_COMPONENTS:
-        raise MergedLangNotWritableError(
-            f"'{lang.value}' — вычисляемый merged-словарь (сумма двух других), нет своего CSV-файла"
+    # ru_merged/usa_merged больше не блокируются здесь — у них свой CSV (см.
+    # _migrate_legacy_merged_csv), пишутся как любой другой словарь, если не
+    # заморожены (ни один из них в _FROZEN_LANGS не входит).
+    if lang in _FROZEN_LANGS:
+        raise FrozenLangNotWritableError(
+            f"'{lang.value}' — эталонный словарь, добавление и редактирование лемм запрещено на уровне сервера"
         )
 
     path = _find_csv(lang)
@@ -667,7 +830,10 @@ def append_lemmas(
 
         weights = item.get("weights") or {}
         values = [_format_weight(weights.get(col, 0.0)) for col in CSV_COLUMNS]
-        category = str(item.get("category", "")).strip()
+        raw_category = item.get("category", "")
+        category = (
+            join_categories(raw_category) if isinstance(raw_category, (list, tuple)) else str(raw_category).strip()
+        )
         new_lines.append(";".join([lemma_raw, *values, category]))
 
     if not new_lines:
@@ -712,3 +878,100 @@ def append_lemmas(
         already_in_dict=len(already_in_dict),
     )
     return added_count, len(updated_keys), skipped, already_in_dict
+
+
+
+def split_categories(raw: str) -> list[str]:
+    """Строка категорий леммы ('A / B'), как она хранится в CSV, в список ['A', 'B'].
+    Публичная — используется и здесь, и схемами Pydantic (NewLemmaItem и т.п.),
+    чтобы разбирать это поле одинаково на чтении и на записи."""
+    return [c.strip() for c in raw.split("/") if c.strip()] if raw else []
+
+
+def join_categories(categories: list[str] | tuple[str, ...]) -> str:
+    """Обратная операция к split_categories — список категорий леммы в
+    строку для хранения в CSV ('A / B'). Пустые/пробельные элементы отсеиваются."""
+    return " / ".join(c.strip() for c in categories if c and c.strip())
+
+
+def _resolve_canonical_category(lang: LemmaLang, category: str) -> str:
+    """Категория как она канонически записана в словаре (по регистронезависимому совпадению)
+    или UnknownLemmaCategoryError, если такой категории в словаре ещё нет ни у одной леммы."""
+    valid_by_fold = {c.casefold(): c for c in list_categories(lang)}
+    canonical = valid_by_fold.get(category.strip().casefold())
+    if canonical is None:
+        raise UnknownLemmaCategoryError(
+            f"Категории '{category}' нет в словаре '{lang.value}' — новые категории "
+            "через этот механизм создавать нельзя, можно назначать только уже существующие "
+            "(см. GET /lemma/categories)"
+        )
+    return canonical
+
+
+MAX_CATEGORIES_PER_LEMMA = 10
+
+
+def add_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
+    """
+    Добавить категорию `category` уже существующей лемме `lemma` в словаре
+    `lang`. Категория обязана уже входить в list_categories(lang) — придумывать
+    новые категории нельзя (см. UnknownLemmaCategoryError), можно только
+    назначать леммам уже существующие. Если у леммы такая категория уже есть —
+    операция идемпотентна (дубль не добавляется).
+
+    Ограничение: у одной леммы не может быть больше MAX_CATEGORIES_PER_LEMMA
+    (10) категорий одновременно — TooManyLemmaCategoriesError, если лимит уже
+    исчерпан и добавляемой категории ещё нет среди текущих.
+
+    Возвращает обновлённую запись {lemma, weights, category}. Пишет через
+    append_lemmas — соответственно, тоже уважает заморозку словарей
+    (FrozenLangNotWritableError; ru_merged/usa_merged больше не блокируются —
+    см. _migrate_legacy_merged_csv).
+    """
+    canonical = _resolve_canonical_category(lang, category)
+    entry = get_lemma(lang, lemma)
+    if entry is None:
+        raise LemmaNotFoundError(f"Леммы '{lemma}' нет в словаре '{lang.value}'")
+
+    current = split_categories(entry["category"])
+    already_has = canonical.casefold() in {c.casefold() for c in current}
+    if not already_has and len(current) >= MAX_CATEGORIES_PER_LEMMA:
+        raise TooManyLemmaCategoriesError(
+            f"У леммы '{entry['lemma']}' уже {MAX_CATEGORIES_PER_LEMMA} категорий — "
+            "максимум для одной леммы. Сначала снимите одну из существующих (action=remove)."
+        )
+    if not already_has:
+        current.append(canonical)
+    new_category = " / ".join(current)
+
+    append_lemmas(
+        lang,
+        [{"lemma": entry["lemma"], "weights": entry["weights"], "category": new_category}],
+        overwrite_existing=True,
+    )
+    entry["category"] = new_category
+    return entry
+
+
+def remove_lemma_category(lang: LemmaLang, lemma: str, category: str) -> dict:
+    """
+    Снять категорию `category` с леммы `lemma` в словаре `lang`. Если у леммы
+    такой категории и не было — операция идемпотентна (ничего не меняется, но
+    и не падает). Остальное — см. add_lemma_category.
+    """
+    entry = get_lemma(lang, lemma)
+    if entry is None:
+        raise LemmaNotFoundError(f"Леммы '{lemma}' нет в словаре '{lang.value}'")
+
+    current = split_categories(entry["category"])
+    new_current = [c for c in current if c.casefold() != category.strip().casefold()]
+    new_category = " / ".join(new_current)
+
+    if new_category != entry["category"]:
+        append_lemmas(
+            lang,
+            [{"lemma": entry["lemma"], "weights": entry["weights"], "category": new_category}],
+            overwrite_existing=True,
+        )
+    entry["category"] = new_category
+    return entry

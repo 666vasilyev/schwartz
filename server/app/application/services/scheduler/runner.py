@@ -17,6 +17,7 @@ from app.infrastructure.repositories.collection_job import (
     count_active_jobs_for_source,
     create_job,
     find_due_sources,
+    recover_stuck_jobs,
 )
 from app.infrastructure.repositories.schedule import (
     add_schedule_log,
@@ -30,6 +31,18 @@ logger = get_logger(__name__)
 
 _TICK_INTERVAL = 60.0  # seconds between scheduler ticks
 _MAX_JOBS_PER_TICK = 20  # hard cap per tick to prevent bursts
+
+# Периодическая подчистка "зависших" задач (running/queued, переживших свой
+# worker — например, если контейнер server был перезапущен/пересобран прямо
+# во время выполнения задачи: asyncio.wait_for в executor.execute_job умирает
+# вместе с процессом и никогда не успевает пометить задачу timeout/failed).
+# Без этого источник блокируется в find_due_sources навсегда: count_active_jobs_for_source
+# видит "активную" задачу и планировщик молча делает continue каждый тик —
+# именно так 3 telegram-источника простояли без сборки 29+ дней после redeploy
+# 28 августа, пока их не нашли и не разблокировали вручную через SQL.
+# Переиспользует ту же логику, что и ручной POST /collection/stuck/recover.
+_STUCK_JOB_SWEEP_EVERY_TICKS = 10  # раз в ~10 минут при _TICK_INTERVAL=60s
+_STUCK_JOB_STALE_MINUTES = 30  # тот же дефолт, что и в /collection/stuck(/recover)
 
 
 def _utcnow() -> datetime:
@@ -48,6 +61,8 @@ class SchedulerService:
         self._skipped_night_mode: int = 0
         # In-memory rate-limit buckets: platform → list of fired timestamps
         self._platform_buckets: dict[str, list[datetime]] = defaultdict(list)
+        self._tick_count: int = 0
+        self._stuck_jobs_recovered_total: int = 0
 
     # ── Lifecycle ──────────────────────────────────────────────────────────
 
@@ -86,6 +101,7 @@ class SchedulerService:
             "jobs_fired_total": self._jobs_fired_total,
             "skipped_rate_limit": self._skipped_rate_limit,
             "skipped_night_mode": self._skipped_night_mode,
+            "stuck_jobs_recovered_total": self._stuck_jobs_recovered_total,
         }
 
     # ── Rate limiting ──────────────────────────────────────────────────────
@@ -123,14 +139,47 @@ class SchedulerService:
             except asyncio.CancelledError:
                 break
 
+    async def _sweep_stuck_jobs(self) -> None:
+        """
+        Помечает timeout/failed задачи, застрявшие в running/queued/created
+        дольше _STUCK_JOB_STALE_MINUTES — обычно это след упавшего/перезапущенного
+        worker'а (redeploy застал задачу на середине выполнения). Без этого
+        источник, за которым тянется такая задача, навсегда выпадает из
+        find_due_sources (см. count_active_jobs_for_source), даже если
+        next_fetch_at давно в прошлом.
+        """
+        async with AsyncSessionLocal() as db:
+            try:
+                recovered = await recover_stuck_jobs(db, stale_minutes=_STUCK_JOB_STALE_MINUTES)
+            except Exception as exc:
+                logger.error(
+                    Events.WORKER_UNEXPECTED_ERROR,
+                    message=f"Stuck-job sweep failed: {exc}",
+                    error=str(exc),
+                )
+                return
+
+        if recovered:
+            self._stuck_jobs_recovered_total += len(recovered)
+            logger.warning(
+                Events.SCHEDULER_STUCK_JOBS_RECOVERED,
+                message=f"Recovered {len(recovered)} stuck job(s): {recovered}",
+                job_ids=recovered,
+                stale_minutes=_STUCK_JOB_STALE_MINUTES,
+            )
+
     async def _tick(self) -> None:
         self._last_tick = _utcnow()
         fired = 0
+        self._tick_count += 1
         logger.debug(
             Events.SCHEDULER_TICK,
             message="Scheduler tick",
             jobs_fired_total=self._jobs_fired_total,
         )
+
+        if self._tick_count % _STUCK_JOB_SWEEP_EVERY_TICKS == 0:
+            await self._sweep_stuck_jobs()
 
         async with AsyncSessionLocal() as db:
             due_sources = await find_due_sources(db)
@@ -174,6 +223,26 @@ class SchedulerService:
                 # Per-source active job guard
                 active = await count_active_jobs_for_source(db, src.id)
                 if active > 0:
+                    # Раньше это был немой continue — источник мог годами
+                    # висеть здесь из-за одной зависшей задачи, и в логах
+                    # /schedule_logs не оставалось ни следа (в отличие от
+                    # skipped_rate_limit ниже). _sweep_stuck_jobs() выше по
+                    # тику разбирает большинство таких случаев сама, но лог
+                    # оставляем и для тех, что ещё не протухли до порога.
+                    logger.debug(
+                        Events.COLLECTION_SOURCE_SKIPPED,
+                        message=f"Source {src.id} skipped: {active} active job(s) in flight",
+                        source_id=src.id,
+                        platform=platform,
+                        active_jobs=active,
+                    )
+                    await add_schedule_log(
+                        db,
+                        rule_id=rule.id if rule else None,
+                        source_id=src.id,
+                        job_id=None,
+                        trigger_reason="skipped_active_job",
+                    )
                     continue
 
                 # Per-platform active job guard from rule

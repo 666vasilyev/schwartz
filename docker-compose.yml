@@ -26,6 +26,8 @@ services:
     volumes:
       - hf_cache:/cache/huggingface
       - stanza_cache:/cache/stanza
+      - media_uploads:/app/media
+      - ./server/prompts:/app/server/prompts
     ports:
       - "8001:8000"
     depends_on:
@@ -62,6 +64,7 @@ services:
       - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - media_uploads:/var/www/media:ro
     depends_on:
       server:
         condition: service_started
@@ -72,3 +75,4 @@ services:
 volumes:
   hf_cache:
   stanza_cache:
+  media_uploads:

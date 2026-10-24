@@ -27,8 +27,10 @@ from .post import (
     get_post_by_source_and_external,
     get_post_by_vk_id,
     get_recent_posts,
+    list_posts_by_ids,
     list_posts_by_owner_id,
     list_posts_by_source_id,
+    list_posts_with_source_by_ids,
     save_post,
 )
 from .post_comment import replace_comments_from_vk_collect
@@ -120,8 +122,10 @@ __all__ = [
     "get_post_by_source_and_external",
     "get_post_by_vk_id",
     "get_recent_posts",
+    "list_posts_by_ids",
     "list_posts_by_owner_id",
     "list_posts_by_source_id",
+    "list_posts_with_source_by_ids",
     "save_post",
     # comments
     "replace_comments_from_vk_collect",

@@ -55,6 +55,33 @@ async def get_recent_posts(db: AsyncSession, limit: int) -> list[Post]:
     return list(result.scalars().all())
 
 
+async def list_posts_by_ids(db: AsyncSession, post_ids: list[int]) -> list[Post]:
+    """Посты по произвольному набору id — для саммари по выборке, собранной пользователем на фронте."""
+    if not post_ids:
+        return []
+    result = await db.execute(select(Post).where(Post.id.in_(post_ids)))
+    return list(result.scalars().all())
+
+
+async def list_posts_with_source_by_ids(
+    db: AsyncSession, post_ids: list[int]
+) -> list[tuple[Post, str | None, str | None, str | None]]:
+    """
+    Как list_posts_by_ids, но вместе с данными источника (тип/имя/url) — нужно
+    для отчёта по выборке постов (см. use_case/posts/summary_report.py), где
+    в таблице постов показывается источник и строится ссылка на пост.
+    Returns list of (Post, source_type, source_name, source_url).
+    """
+    if not post_ids:
+        return []
+    result = await db.execute(
+        select(Post, Source.source_type, Source.name, Source.url)
+        .outerjoin(Source, Post.source_id == Source.id)
+        .where(Post.id.in_(post_ids))
+    )
+    return list(result.all())
+
+
 async def list_posts_by_owner_id(db: AsyncSession, owner_id: int) -> list[Post]:
     """Посты стены, совпадающие с vk_owner_id источника."""
     result = await db.execute(
@@ -88,6 +115,13 @@ def _apply_post_filters(
     date_to: datetime | None = None,
     search: str | None = None,
 ):
+    # Посты без текста (для RSS сюда же на этапе сохранения склеивается
+    # заголовок, см. persist.py:_rss_combined_text — отдельного поля title
+    # в модели Post нет) не показываем в общей ленте новостей: пользователю
+    # физически нечего показать. Затрагивает только GET /api/v1/posts
+    # (list_posts/count_posts), у постов конкретного источника
+    # (list_posts_by_source_id) такие записи всё ещё видны.
+    q = q.where(Post.text.is_not(None), func.trim(Post.text) != "")
     if source_ids:
         q = q.where(Post.source_id.in_(source_ids))
     if category_names:
@@ -117,10 +151,10 @@ async def list_posts(
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
-) -> list[tuple[Post, str | None, str | None]]:
-    """Returns list of (Post, source_type, source_url)."""
+) -> list[tuple[Post, str | None, str | None, str | None, datetime | None]]:
+    """Returns list of (Post, source_type, source_url, source_image_filename, source_image_updated_at)."""
     q = (
-        select(Post, Source.source_type, Source.url)
+        select(Post, Source.source_type, Source.url, Source.image_filename, Source.image_updated_at)
         .outerjoin(Source, Post.source_id == Source.id)
         .order_by(Post.published_at.desc().nulls_last(), Post.id.desc())
     )

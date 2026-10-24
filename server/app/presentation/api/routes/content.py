@@ -3,18 +3,21 @@ POST /analyze/source/{source_id} — посты стены источника: L
 GET  /analyze/source/{source_id}/stored — последний сохранённый агрегат Шварца из БД.
 """
 from datetime import date, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.content import lemma_scorer
-from app.application.services.content.lemma_llm_extractor import extract_new_lemmas
+from app.application.services.content.lemma_llm_extractor import assign_weights_to_lemmas, extract_new_lemmas
 from app.application.services.content.lemma_scorer import LemmaLang
 from app.application.services.content.lemmatizer import lemmatize
 from app.infrastructure.db.orm.models import User
 from app.infrastructure.repositories.lemma_buffer import (
     clear_buffer,
+    count_buffer_lemmas_for_weight_generation,
     list_buffer_entries,
+    list_buffer_lemmas_for_weight_generation,
     remove_buffer_entries,
     set_buffer_weights,
     upsert_buffer_entry,
@@ -35,6 +38,11 @@ from app.presentation.schemas.analysis import (
     LemmaBlacklistActionResponse,
     LemmaBlacklistListResponse,
     LemmaCategoriesRequest,
+    LemmaCategoryActionRequest,
+    LemmaCategoryActionResponse,
+    LemmaCategoryCount,
+    LemmaCategoryCountsResponse,
+    LemmaCategoryListResponse,
     LemmaExtractRequest,
     LemmaExtractResponse,
     LemmaListResponse,
@@ -42,6 +50,8 @@ from app.presentation.schemas.analysis import (
     LemmaSourcesRequest,
     LemmaTextRequest,
     LemmaTrendCandidatesResponse,
+    LemmaWeightsRequest,
+    LemmaWeightsResponse,
     LLMChatRequest,
     LLMChatResponse,
     LLMOverrideRequest,
@@ -56,6 +66,7 @@ from app.presentation.schemas.lemma_buffer import (
     LemmaBufferActionResponse,
     LemmaBufferItem,
     LemmaBufferListResponse,
+    LemmaBufferWeightsItem,
 )
 from app.use_case.analyze import get_stored as analyze_get_stored
 from app.use_case.analyze import lemma as analyze_lemma
@@ -68,13 +79,14 @@ from app.use_case.analyze import lemma_category_by_day as analyze_lemma_category
 from app.use_case.analyze import lemma_source as analyze_lemma_source
 from app.use_case.analyze import lemma_trend_candidates as analyze_lemma_trend_candidates
 from app.use_case.analyze import lemma_trend_weight as analyze_lemma_trend_weight
+from app.use_case.analyze import lemma_weights as analyze_lemma_weights
 from app.use_case.analyze import post as analyze_post
 
 router = APIRouter(prefix="/analyze", tags=["Content Analysis"], dependencies=[Depends(get_current_user)])
 
 # ── Общие Query-параметры (переиспользуются в нескольких ручках ниже, чтобы не
 #    держать одинаковый Query(...)/описание в 7 и 5 местах соответственно) ──
-_LANG_QUERY = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, ru_ch, usa, usa_un, usa_ch, frg")
+_LANG_QUERY = Query(LemmaLang.ru, description="Язык словаря: ru_ofs, ru_un, ru_ch, usa, usa_un, usa_ch, frg")
 _DATE_FROM_QUERY = Query(None, description="Начало диапазона (published_at >=)")
 _DATE_TO_QUERY = Query(None, description="Конец диапазона (published_at <=)")
 
@@ -85,7 +97,7 @@ _DATE_TO_QUERY = Query(None, description="Конец диапазона (publish
     summary="Только количество лемм словаря по каждому из 10 параметров ЦКМ",
 )
 def get_lemma_counts(
-    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg"),
+    lang: LemmaLang = Query(LemmaLang.ru, description="Язык словаря: ru_ofs, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg"),
 ) -> LemmaParameterCountsResponse:
     return LemmaParameterCountsResponse(lang=lang, counts=lemma_scorer.count_lemmas_by_parameter(lang))
 
@@ -218,7 +230,7 @@ async def lemma_categories_overview(
     ),
     lemma_lang: LemmaLang = Query(
         LemmaLang.ru,
-        description="Словарь для new_lemmas трендов (только чёрный список — сами леммы не скорятся): ru, ru_un, ru_ch, usa, usa_un, usa_ch, frg",
+        description="Словарь для new_lemmas трендов (только чёрный список — сами леммы не скорятся): ru_ofs, ru_un, ru_ch, usa, usa_un, usa_ch, frg",
     ),
     lemma_top_n: int = Query(
         10, ge=0, le=50, description="Сколько самых частых лемм на трендовый кластер отдавать в new_lemmas (0 — не считать)"
@@ -324,7 +336,7 @@ async def analyze_category_lemma_by_day(
 async def extract_lemma_candidates(
     body: LemmaExtractRequest,
     lang: LemmaLang = Query(
-        LemmaLang.ru, description="Словарь, с которым сверяем дубли: ru, ru_un, ru_ch, usa, usa_un, usa_ch, frg"
+        LemmaLang.ru, description="Словарь, с которым сверяем дубли: ru_ofs, ru_un, ru_ch, usa, usa_un, usa_ch, frg"
     ),
 ) -> LemmaExtractResponse:
     """
@@ -367,6 +379,8 @@ def _append_lemmas_to_csv(
         )
     except lemma_scorer.MergedLangNotWritableError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except lemma_scorer.FrozenLangNotWritableError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
     return LemmaAppendResponse(
         lang=lang,
         added=added,
@@ -384,7 +398,12 @@ def _append_lemmas_to_csv(
 async def append_lemma_candidates(
     body: LemmaAppendRequest,
     lang: LemmaLang = Query(
-        ..., description="Словарь для записи: ru, ru_un, ru_ch, usa, usa_un, usa_ch, frg (merged — вычисляемые, только для чтения)"
+        ...,
+        description=(
+            "Словарь для записи: ru_ofs, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, "
+            "usa_merged, frg — ru_ofs/ru_un/usa/usa_un/frg заморожены (403, см. FrozenLangNotWritableError), "
+            "остальные (включая ru_merged/usa_merged — у них теперь свой CSV, не вычисляемые) пишутся как обычно"
+        ),
     ),
     overwrite_existing: bool = Query(
         True,
@@ -418,7 +437,7 @@ async def append_lemma_candidates(
 )
 def list_lemma_csv(
     lang: LemmaLang = Query(
-        ..., description="Словарь: ru, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg"
+        ..., description="Словарь: ru_ofs, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg"
     ),
     search: str | None = Query(None, description="Подстрока для фильтра по лемме (регистронезависимо)"),
     limit: int = Query(100, ge=1, le=1000, description="Сколько строк вернуть за один запрос"),
@@ -431,6 +450,85 @@ def list_lemma_csv(
         offset=offset,
         limit=limit,
         lemmas=[NewLemmaItem(**row) for row in rows],
+    )
+
+
+@router.get(
+    "/lemma/categories",
+    response_model=LemmaCategoryListResponse,
+    summary="Категории лемм словаря — полный список уже существующих значений (для выбора при add)",
+)
+def list_lemma_categories(
+    lang: LemmaLang = _LANG_QUERY,
+    limit: int = Query(100, ge=1, le=500, description="Сколько категорий вернуть за один запрос"),
+    offset: int = Query(0, ge=0, description="Сколько категорий пропустить (пагинация)"),
+) -> LemmaCategoryListResponse:
+    all_categories = lemma_scorer.list_categories(lang)
+    page = all_categories[offset : offset + limit]
+    return LemmaCategoryListResponse(
+        lang=lang, total=len(all_categories), offset=offset, limit=limit, categories=page
+    )
+
+
+@router.post(
+    "/lemma/categories/action",
+    response_model=LemmaCategoryActionResponse,
+    summary="Добавить/снять категорию у леммы (action=add|remove; категория обязана уже существовать в словаре)",
+)
+def lemma_category_action(
+    body: LemmaCategoryActionRequest,
+    lang: LemmaLang = Query(
+        ..., description="Словарь: ru_ofs, ru_un, ru_ch, ru_merged, usa, usa_un, usa_ch, usa_merged, frg"
+    ),
+) -> LemmaCategoryActionResponse:
+    """
+    Единая ручка вместо раздельных /categories/add и /categories/remove — тот
+    же паттерн, что и POST /lemma/blacklist и POST /sources/{id}/action.
+
+    Пишет в тот же CSV-словарь, что и /lemma/append (через append_lemmas), и
+    подчиняется тем же ограничениям: ru_ofs/ru_un/usa/usa_un/frg заморожены
+    на уровне сервера (403); ru_merged/usa_merged — у них свой CSV (больше не
+    вычисляемые на лету), пишутся как любой другой словарь. Категория, которой ещё нет ни у одной леммы
+    словаря, отклоняется (422) — новые категории через эту ручку не
+    создаются, только переиспользуются существующие (см. GET /lemma/categories).
+    У одной леммы не может быть больше 10 категорий одновременно (422, если
+    лимит уже исчерпан). Леммы, которой нет в словаре, — 404.
+    """
+    try:
+        if body.action == "add":
+            entry = lemma_scorer.add_lemma_category(lang, body.lemma, body.category)
+        else:
+            entry = lemma_scorer.remove_lemma_category(lang, body.lemma, body.category)
+    except lemma_scorer.MergedLangNotWritableError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except lemma_scorer.FrozenLangNotWritableError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    except lemma_scorer.UnknownLemmaCategoryError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except lemma_scorer.TooManyLemmaCategoriesError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except lemma_scorer.LemmaNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return LemmaCategoryActionResponse(
+        lang=lang, action=body.action, lemma=entry["lemma"], category=entry["category"]
+    )
+
+
+@router.get(
+    "/lemma/categories/counts",
+    response_model=LemmaCategoryCountsResponse,
+    summary="Подсчёт лемм по категориям — топ используемых категорий словаря",
+)
+def get_lemma_category_counts(
+    lang: LemmaLang = _LANG_QUERY,
+    limit: int = Query(10, ge=1, le=100, description="Сколько категорий вернуть — топ по убыванию количества лемм"),
+) -> LemmaCategoryCountsResponse:
+    counts = lemma_scorer.count_lemmas_by_category(lang)
+    top = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return LemmaCategoryCountsResponse(
+        lang=lang,
+        total_categories=len(counts),
+        counts=[LemmaCategoryCount(category=c, count=n) for c, n in top],
     )
 
 
@@ -448,8 +546,20 @@ def get_lemma_blacklist(
             "для старого фронта."
         ),
     ),
+    word_lang: Literal["ru", "en", "de"] | None = Query(
+        None,
+        description=(
+            "Фильтр по языку леммы — определяется эвристически по алфавиту "
+            "символов (регуляркой, без словарей): кириллица → ru, немецкие "
+            "спецсимволы äöüß → de, иначе латиница → en."
+        ),
+    ),
+    search: str | None = Query(None, description="Подстрока для фильтра по лемме (регистронезависимо)"),
 ) -> LemmaBlacklistListResponse:
-    return LemmaBlacklistListResponse(lang=lang, lemmas=lemma_scorer.list_blacklist())
+    return LemmaBlacklistListResponse(
+        lang=lang,
+        lemmas=lemma_scorer.list_blacklist(search=search, word_lang=word_lang),
+    )
 
 
 @router.post(
@@ -536,7 +646,8 @@ async def lemma_trend_candidates_endpoint(
 @router.get(
     "/lemma/trend-candidates/{lemma}/weights",
     response_model=NewLemmaItem,
-    summary="Веса ЦКМ и категория для одной леммы (lazy-load, обычно — из /lemma/trend-candidates)",
+    summary="[DEPRECATED, см. POST /lemma/weights] Веса ЦКМ и категория для одной леммы",
+    deprecated=True,
 )
 async def lemma_trend_candidate_weights(
     lemma: str,
@@ -545,19 +656,42 @@ async def lemma_trend_candidate_weights(
     model: str | None = Query(None, description="Модель LLM. По умолчанию — активная."),
 ) -> NewLemmaItem:
     """
-    Один вызов LLM — веса по 10 направлениям ЦКМ и категория для конкретной
-    леммы (обычно взятой из ответа /lemma/trend-candidates, но подойдёт любое
-    слово/словосочетание). Так вместо N последовательных LLM-вызовов на весь
-    список сразу считаются только те леммы, что реально интересны. Результат
-    можно передать в /lemma/append как есть.
+    DEPRECATED — используйте POST /lemma/weights с lemmas=[эта_лемма] (та же
+    логика, но универсальная — принимает список лемм из любого источника, не
+    только из /lemma/trend-candidates). Оставлена рабочей для обратной
+    совместимости, новых вызовов на неё заводить не нужно.
     """
     return await analyze_lemma_trend_weight.execute(lemma, lang, provider=provider, model=model)
 
 
 @router.post(
+    "/lemma/weights",
+    response_model=LemmaWeightsResponse,
+    summary="Веса ЦКМ и категория для списка лемм (универсально — буфер, тренды, что угодно ещё)",
+)
+async def lemma_weights(body: LemmaWeightsRequest) -> LemmaWeightsResponse:
+    """
+    Один вызов LLM на каждую лемму из `lemmas` (последовательно — см.
+    assign_weights_to_lemmas), веса по 10 направлениям ЦКМ + категория.
+    Леммы могут быть откуда угодно — из буфера выделений, из
+    /lemma/trend-candidates, введены вручную на фронте — ручка не привязана
+    к конкретному источнику. Для расчёта одной леммы — просто список из
+    одного элемента (замена deprecated GET /lemma/trend-candidates/{lemma}/weights).
+
+    Результат в `results` — в формате /lemma/append (lemma, weights,
+    category), можно передать туда как есть. Леммы, для которых LLM не дала
+    разбираемый ответ, — в `failed` (не включены в results, можно повторить
+    тем же вызовом).
+    """
+    return await analyze_lemma_weights.execute(
+        body.lemmas, body.lang, provider=body.provider, model=body.model
+    )
+
+
+@router.post(
     "/lemma/buffer",
     response_model=LemmaBufferActionResponse,
-    summary="Буфер лемм: добавить фрагменты / сохранить веса / удалить / очистить (action=add|set_weights|remove|clear)",
+    summary="Буфер лемм: добавить фрагменты / сохранить веса / сгенерировать веса пачкой / удалить / очистить (action=add|set_weights|generate_weights|remove|clear)",
 )
 async def lemma_buffer_action(
     body: LemmaBufferActionRequest,
@@ -581,6 +715,16 @@ async def lemma_buffer_action(
     формате /lemma/append (lemma, weights, category).
 
     action=remove/clear — как раньше.
+
+    action=generate_weights — то же, что несколько раз подряд вызвать
+    GET /lemma/trend-candidates/{lemma}/weights для лемм буфера, но одним
+    запросом и сразу с сохранением. По умолчанию берёт только леммы без
+    весов (не трогает уже размеченные — overwrite=True пересчитывает всех).
+    LLM-вызовы последовательные (по одному на лемму), поэтому обрабатывается
+    не больше `limit` лемм за раз — remaining в ответе показывает, сколько
+    ещё осталось (вызывать снова, пока не станет 0). Леммы, для которых LLM
+    не дала разбираемый ответ, попадают в failed и НЕ сохраняются (weights
+    остаются NULL — можно повторить тем же вызовом).
     """
     if body.action == "add":
         added = 0
@@ -611,13 +755,61 @@ async def lemma_buffer_action(
             if not key:
                 continue
             ok = await set_buffer_weights(
-                db, user_id=current_user.id, lemma=key, weights=item.weights, category=item.category
+                db,
+                user_id=current_user.id,
+                lemma=key,
+                weights=item.weights,
+                category=lemma_scorer.join_categories(item.category),
             )
             if ok:
                 updated += 1
             else:
                 not_found.append(item.lemma)
         return LemmaBufferActionResponse(action=body.action, updated=updated, not_found=not_found)
+
+    if body.action == "generate_weights":
+        if body.lang is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="lang обязателен при action=generate_weights",
+            )
+        only_missing = not body.overwrite
+        total_pending = await count_buffer_lemmas_for_weight_generation(
+            db, user_id=current_user.id, only_missing=only_missing
+        )
+        entries = await list_buffer_lemmas_for_weight_generation(
+            db, user_id=current_user.id, only_missing=only_missing, limit=body.limit
+        )
+        results = await assign_weights_to_lemmas(
+            [e.lemma for e in entries], body.lang, provider=body.provider, model=body.model
+        )
+        generated: list[LemmaBufferWeightsItem] = []
+        failed: list[str] = []
+        for item in results:
+            if not item["category"]:
+                # LLM не вернула разбираемый ответ (см. docstring assign_weights_to_lemmas) —
+                # weights в буфере остаются NULL, лемма попадёт в следующий вызов снова.
+                failed.append(item["lemma"])
+                continue
+            await set_buffer_weights(
+                db,
+                user_id=current_user.id,
+                lemma=item["lemma"],
+                weights=item["weights"],
+                category=item["category"],
+            )
+            generated.append(
+                LemmaBufferWeightsItem(
+                    lemma=item["lemma"], weights=item["weights"], category=item["category"]
+                )
+            )
+        return LemmaBufferActionResponse(
+            action=body.action,
+            updated=len(generated),
+            failed=failed,
+            generated=generated,
+            remaining=max(0, total_pending - len(entries)),
+        )
 
     if body.action == "remove":
         keys = [k for k in (lemma_scorer.clean_lemma(x) for x in body.lemmas) if k]

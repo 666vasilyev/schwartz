@@ -3,8 +3,10 @@ Sources management API — /api/v1/sources
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Path, Query, Response, UploadFile, status
-from fastapi.responses import StreamingResponse
+from typing import Literal
+
+from fastapi import APIRouter, Depends, File, HTTPException, Path, Query, Response, UploadFile, status
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.presentation.api.dependencies import get_current_user, get_session
@@ -31,6 +33,9 @@ from app.use_case.sources import delete as delete_uc
 from app.use_case.sources import export_sources as export_uc
 from app.use_case.sources import get as get_uc
 from app.use_case.sources import get_all as get_all_uc
+from app.use_case.sources import get_image as get_image_uc
+from app.use_case.sources import upload_image as upload_image_uc
+from app.use_case.sources import delete_image as delete_image_uc
 from app.use_case.sources import health as health_uc
 from app.use_case.sources import import_sources as import_uc
 from app.use_case.sources import logs as logs_uc
@@ -116,8 +121,36 @@ async def list_sources(
     status: str | None = Query(None),
     source_type: str | None = Query(None),
     owner_id: int | None = Query(None),
+    sort_by: Literal["name", "source_type", "status"] | None = Query(
+        None,
+        description=(
+            "Поле сортировки. name — алфавитный порядок (см. sort_dir). "
+            "source_type / status — источники со значением sort_value поднимаются "
+            "наверх, остальные — ниже (порядок между ними не гарантирован)."
+        ),
+    ),
+    sort_dir: Literal["asc", "desc"] = Query(
+        "asc",
+        description=(
+            "Направление сортировки. Для name — обычный алфавит (asc) / обратный (desc). "
+            "Для source_type/status — asc поднимает sort_value наверх, desc опускает его вниз."
+        ),
+    ),
+    sort_value: str | None = Query(
+        None,
+        description=(
+            "Значение, которое нужно поднять наверх при sort_by=source_type "
+            "(rss / vk / telegram) или sort_by=status (active / paused / disabled / "
+            "error / blocked / deleted). Обязателен при этих sort_by."
+        ),
+    ),
     db: AsyncSession = Depends(get_session),
 ) -> SourceListResponse:
+    if sort_by in ("source_type", "status") and not sort_value:
+        raise HTTPException(
+            status_code=422,
+            detail=f"sort_value обязателен при sort_by='{sort_by}'",
+        )
     return await get_all_uc.execute(
         db,
         skip=skip,
@@ -126,6 +159,9 @@ async def list_sources(
         status=status,
         source_type=source_type,
         owner_id=owner_id,
+        sort_by=sort_by,
+        sort_dir=sort_dir,
+        sort_value=sort_value,
     )
 
 
@@ -180,6 +216,51 @@ async def remove_source(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+# ── Изображение источника ───────────────────────────────────────────────────
+# Отдельные эндпоинты, а не поле в POST/PATCH: тело создания сейчас JSON
+# (multipart потребовал бы переписывать все поля SourceCreateRequest на
+# Form(...)), да и это тот же паттерн, что аватар/лого у любого ресурса —
+# сначала создаём источник, потом (сразу же или позже) заливаем картинку.
+
+
+@router.post(
+    "/{source_id}/image",
+    response_model=SourceRead,
+    summary="Загрузить/заменить изображение источника",
+)
+async def upload_source_image(
+    source_id: int = Path(..., ge=1),
+    file: UploadFile = File(..., description="JPEG/PNG/WEBP/GIF, до 5 МБ"),
+    db: AsyncSession = Depends(get_session),
+) -> SourceRead:
+    return await upload_image_uc.execute(db, source_id, file)
+
+
+@router.delete(
+    "/{source_id}/image",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Удалить изображение источника",
+)
+async def remove_source_image(
+    source_id: int = Path(..., ge=1),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    await delete_image_uc.execute(db, source_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/{source_id}/image",
+    summary="Отдать файл изображения источника",
+)
+async def get_source_image(
+    source_id: int = Path(..., ge=1),
+    db: AsyncSession = Depends(get_session),
+) -> FileResponse:
+    path = await get_image_uc.execute(db, source_id)
+    return FileResponse(path)
+
+
 # ── Unified action endpoint ────────────────────────────────────────────────
 
 
@@ -188,7 +269,7 @@ async def remove_source(
     response_model=SourceActionResponse,
     summary=(
         "Действие над источником: "
-        "enable | disable | pause | reset_error | fetch | fetch_history | fetch_incremental"
+        "enable | disable | pause (DEPRECATED, см. ниже) | reset_error | fetch | fetch_history | fetch_incremental"
     ),
 )
 async def source_action(
@@ -196,6 +277,15 @@ async def source_action(
     body: SourceActionRequest = ...,
     db: AsyncSession = Depends(get_session),
 ) -> SourceActionResponse:
+    """
+    action='pause' — DEPRECATED, оставлен рабочим для обратной совместимости.
+    Для простого интерфейса (включено/выключено) используйте 'disable' —
+    он покрывает тот же сценарий (источник не участвует в автосборе) и
+    работает из большего числа статусов (в т.ч. из blocked, где 'pause'
+    вернёт 409). 'pause' отличается только тем, что считается "здоровым"
+    статусом в GET /{source_id}/health — если это не нужно, 'disable'
+    полностью заменяет 'pause'.
+    """
     return await action_uc.execute(db, source_id, body)
 
 

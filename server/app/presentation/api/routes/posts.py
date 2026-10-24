@@ -5,14 +5,24 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.services.content.lemma_scorer import LemmaLang
 from app.presentation.api.dependencies import get_current_user, get_session
-from app.presentation.schemas.post import PostListResponse
+from app.presentation.schemas.post import (
+    PostListResponse,
+    PostSummaryReportRequest,
+    PostSummaryRequest,
+    PostSummaryResponse,
+)
 from app.use_case.posts import export_posts as export_uc
 from app.use_case.posts import get_all as get_all_uc
 from app.use_case.posts import import_posts as import_uc
+from app.use_case.posts import summarize as summarize_uc
+from app.use_case.posts import summary_report as summary_report_uc
 
 router = APIRouter(prefix="/api/v1/posts", tags=["Posts"], dependencies=[Depends(get_current_user)])
 
@@ -50,6 +60,55 @@ async def import_posts(
     db: AsyncSession = Depends(get_session),
 ) -> dict:
     return await import_uc.execute(db, file)
+
+
+@router.post(
+    "/summary",
+    response_model=PostSummaryResponse,
+    summary="Саммари по выбранным пользователем новостям через LLM",
+)
+async def summarize_posts(
+    body: PostSummaryRequest,
+    db: AsyncSession = Depends(get_session),
+) -> PostSummaryResponse:
+    return await summarize_uc.execute(db, body.post_ids)
+
+
+@router.post(
+    "/summary/report",
+    summary="Отчёт по выбранным новостям (саммари + ЦКМ-аналитика) — файл DOCX или PDF",
+)
+async def summary_report(
+    body: PostSummaryReportRequest,
+    fmt: Literal["docx", "pdf"] = Query(..., description="Формат отчёта"),
+    lang: LemmaLang = Query(
+        LemmaLang.ru, description="Словарь ЦКМ для аналитики: ru_ofs, ru_un, ru_ch, usa, usa_un, usa_ch, frg"
+    ),
+    db: AsyncSession = Depends(get_session),
+) -> Response:
+    """
+    Тот же набор постов, что и в POST /summary (post_ids, до 20 штук), но
+    результат — готовый файл для скачивания, а не JSON: заголовок
+    Content-Disposition: attachment уже выставлен, фронту достаточно отдать
+    ответ как blob.
+
+    Если пользователь уже видел саммари на экране (после POST /summary) —
+    передайте body.title/summary/topics с экрана как есть: тогда LLM
+    повторно не вызывается и текст в отчёте гарантированно совпадает с тем,
+    что видел пользователь (в т.ч. если он сам его отредактировал). Если
+    summary не передан — саммари строится заново тем же LLM-вызовом, что и в
+    /summary (для обратной совместимости). ЦКМ-аналитика считается заново в
+    любом случае — она не зависит от LLM.
+    """
+    return await summary_report_uc.execute(
+        db,
+        body.post_ids,
+        lang=lang,
+        fmt=fmt,
+        preset_title=body.title,
+        preset_summary=body.summary,
+        preset_topics=body.topics,
+    )
 
 
 @router.get(

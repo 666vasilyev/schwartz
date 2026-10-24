@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from app.infrastructure.clients.llm import ask_llm_json
+from app.infrastructure.prompts import load_prompt
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -23,28 +24,7 @@ SCHWARTZ_KEYS: tuple[str, ...] = (
     "universalism",  # Справедливость, толерантность, природа, всеобщий мир
 )
 
-# Промпт: few-shot на русском — показывает модели ожидаемый формат и уровень детализации.
-# Не использует response_format (breaking с thinking-моделями), JSON парсится через extract_json.
-SCHWARTZ_LLM_SYSTEM = (
-    "Оцени выраженность 10 ценностей Шварца в тексте. Шкала: 0.0 (не выражено) – 1.0 (очень сильно).\n\n"
-    "Ключи и их смысл:\n"
-    "self_direction = независимость, свобода выбора, творчество\n"
-    "stimulation = новизна, риск, острые ощущения, приключения\n"
-    "hedonism = удовольствие, радость, комфорт, наслаждение\n"
-    "achievement = успех, амбиции, победа, достижение целей\n"
-    "power = власть, контроль, статус, богатство, господство\n"
-    "security = безопасность, стабильность, защита, порядок\n"
-    "conformity = следование правилам, послушание, сдержанность\n"
-    "tradition = обычаи, религия, наследие, почитание старших\n"
-    "benevolence = забота о близких, семья, лояльность, дружба\n"
-    "universalism = справедливость, экология, права человека, мир\n\n"
-    "Пример:\n"
-    'Текст: "Волонтёры высадили тысячу деревьев в городском парке, чтобы улучшить экологию."\n'
-    'Ответ: {"self_direction":0.3,"stimulation":0.1,"hedonism":0.0,"achievement":0.4,'
-    '"power":0.0,"security":0.2,"conformity":0.1,"tradition":0.0,'
-    '"benevolence":0.5,"universalism":0.8}\n\n'
-    "Верни ТОЛЬКО JSON-объект с 10 ключами, без markdown и пояснений."
-)
+# Промпт вынесен в server/prompts/schwartz_values_system.txt (см. app.infrastructure.prompts)
 
 
 def normalize_schwartz_payload(raw: object) -> dict[str, float]:
@@ -93,7 +73,7 @@ async def extract_schwartz_values_from_text(
     # Ошибки LLM (HTTPException 502) пробрасываются наверх — клиент получает реальную ошибку
     result = await ask_llm_json(
         f"Текст:\n\n{t}",
-        system=SCHWARTZ_LLM_SYSTEM,
+        system=load_prompt("schwartz_values_system"),
         provider=provider,
         model=model,
         max_tokens=1024,

@@ -32,6 +32,7 @@ from app.application.services.content.lemma_scorer import (
 )
 from app.application.services.content.schwartz_values import normalize_to_unit_sum
 from app.infrastructure.clients.llm import ask_llm_json
+from app.infrastructure.prompts import render_prompt
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -66,31 +67,20 @@ _COLUMN_LOOKUP: dict[str, str] = {re.sub(r"\s+", "", col).casefold(): col for co
 
 
 def _build_system_prompt(exclude: list[str], valid_categories: list[str]) -> str:
+    # Шаблон вынесен в server/prompts/lemma_extract_system.txt (см. app.infrastructure.prompts)
     exclude_str = (
         ", ".join(exclude[-_MAX_EXCLUDE_IN_PROMPT:])
         if exclude
         else "(в этом тексте по словарю совпадений не найдено)"
     )
     categories_str = ", ".join(valid_categories) if valid_categories else "(список категорий пуст)"
-    return (
-        "Ты — лингвист-аналитик, размечающий леммы для словаря Ценностной Картины Мира (ЦКМ).\n"
-        f"В словаре 10 направлений (порядок важен — веса задаются позиционным массивом):\n{_COLUMNS_HINT}\n\n"
-        "По тексту ниже подбери ОДНУ лемму (одно слово или устойчивое "
-        f"словосочетание из МАКСИМУМ {_MAX_LEMMA_WORDS} слов, в начальной форме), "
-        "которая характеризует текст по этим 10 направлениям.\n\n"
-        "Укажи ровно 10 чисел от 0.0 до 1.0 — по одному на каждое направление "
-        "СТРОГО В ТОМ ЖЕ ПОРЯДКЕ, что в списке выше (1-е число = \"Безопасность\", "
-        "..., 10-е = \"Свобода совести\"). Если направление не подходит — 0.0, не "
-        "все направления обязаны быть ненулевыми.\n\n"
-        "Плюс категория — РОВНО ОДНА, строго из этого списка уже существующих "
-        "категорий (ничего не придумывай, не комбинируй несколько через '/'):\n"
-        f"{categories_str}\n\n"
-        "ВАЖНО — не предлагай эти леммы, они уже использованы:\n"
-        f"{exclude_str}\n\n"
-        "Не рассуждай пошагово и не объясняй ход мыслей — сразу выведи финальный "
-        "результат.\n\n"
-        "Верни ТОЛЬКО один JSON-объект (без markdown, без пояснений до/после) вида:\n"
-        f'{{"lemma": "...", "weights": [{_ZEROS_EXAMPLE}], "category": "..."}}'
+    return render_prompt(
+        "lemma_extract_system",
+        columns_hint=_COLUMNS_HINT,
+        max_lemma_words=_MAX_LEMMA_WORDS,
+        categories_str=categories_str,
+        exclude_str=exclude_str,
+        zeros_example=_ZEROS_EXAMPLE,
     )
 
 
@@ -168,24 +158,17 @@ def _build_weight_assignment_prompt(lemma: str, valid_categories: list[str]) -> 
     используется для готовых кандидатов из частотного поиска по трендам (см.
     use_case/analyze/lemma_trend_candidates.py), где сама лемма определена
     частотным методом, а не LLM; LLM здесь нужна только для весов и категории.
+
+    Шаблон вынесен в server/prompts/lemma_weight_assignment_system.txt
+    (см. app.infrastructure.prompts).
     """
     categories_str = ", ".join(valid_categories) if valid_categories else "(список категорий пуст)"
-    return (
-        "Ты — лингвист-аналитик, размечающий леммы для словаря Ценностной Картины Мира (ЦКМ).\n"
-        f"В словаре 10 направлений (порядок важен — веса задаются позиционным массивом):\n{_COLUMNS_HINT}\n\n"
-        f'Дана лемма (слово или устойчивое словосочетание): "{lemma}".\n\n'
-        "Укажи ровно 10 чисел от 0.0 до 1.0 — по одному на каждое направление "
-        "СТРОГО В ТОМ ЖЕ ПОРЯДКЕ, что в списке выше (1-е число = \"Безопасность\", "
-        "..., 10-е = \"Свобода совести\"), отражающих, насколько эта лемма характерна "
-        "для каждого направления. Если направление не подходит — 0.0, не все "
-        "направления обязаны быть ненулевыми.\n\n"
-        "Плюс категория — РОВНО ОДНА, строго из этого списка уже существующих "
-        "категорий (ничего не придумывай, не комбинируй несколько через '/'):\n"
-        f"{categories_str}\n\n"
-        "Не рассуждай пошагово и не объясняй ход мыслей — сразу выведи финальный "
-        "результат.\n\n"
-        "Верни ТОЛЬКО один JSON-объект (без markdown, без пояснений до/после) вида:\n"
-        f'{{"weights": [{_ZEROS_EXAMPLE}], "category": "..."}}'
+    return render_prompt(
+        "lemma_weight_assignment_system",
+        columns_hint=_COLUMNS_HINT,
+        lemma=lemma,
+        categories_str=categories_str,
+        zeros_example=_ZEROS_EXAMPLE,
     )
 
 
