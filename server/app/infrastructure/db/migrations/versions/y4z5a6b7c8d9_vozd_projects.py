@@ -1,14 +1,14 @@
 """vozd: project flag + social groups, users, profile data, runs
 
-Revision ID: x3y4z5a6b7c8
-Revises: w2x3y4z5a6b7
+Revision ID: y4z5a6b7c8d9
+Revises: x3y4z5a6b7c8
 Create Date: 2026-10-24
 """
 from alembic import op
 import sqlalchemy as sa
 
-revision = "x3y4z5a6b7c8"
-down_revision = "w2x3y4z5a6b7"
+revision = "y4z5a6b7c8d9"
+down_revision = "x3y4z5a6b7c8"
 branch_labels = None
 depends_on = None
 
