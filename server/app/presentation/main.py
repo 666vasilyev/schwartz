@@ -9,6 +9,7 @@ from app.application.services.content.clustering_runner import runner as cluster
 from app.application.services.content import embedder
 from app.application.services.scheduler.runner import scheduler
 from app.application.services.worker.runner import worker as collection_worker
+from app.application.services.vozd.runner import runner as vozd_runner
 from app.core.config import get_settings
 from app.infrastructure.clients import llm_registry
 from app.presentation.api.routes import collect, content, sources
@@ -22,6 +23,7 @@ from app.presentation.api.routes.schedule import router as schedule_router
 from app.presentation.api.routes.vk import router as vk_router
 from app.presentation.api.routes.telegram import router as telegram_router
 from app.presentation.api.routes.llm_settings import router as llm_settings_router
+from app.presentation.api.routes.vozd import router as vozd_router
 from app.presentation.middleware.request_logging import RequestLoggingMiddleware
 from app.utils.log_events import Events
 from app.utils.logger import configure_logging, get_logger
@@ -47,8 +49,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     collection_worker.start()
     scheduler.start()
     clustering_runner.start()
+    vozd_runner.start()
     yield
     logger.info(Events.WORKER_SHUTDOWN, message="Application shutdown")
+    await vozd_runner.stop()
     await clustering_runner.stop()
     await scheduler.stop()
     await collection_worker.stop()
@@ -106,6 +110,7 @@ app.include_router(clusters_router)
 app.include_router(source_categories_router)
 app.include_router(llm_settings_router)
 app.include_router(analytics_router)
+app.include_router(vozd_router)
 
 
 @app.get("/health", tags=["Health"], summary="Liveness probe")

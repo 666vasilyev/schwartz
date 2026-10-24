@@ -76,3 +76,5 @@ CLAUDE.md
 server\app\utils\tg_session_exporter.py
 
 *.csv
+# vozd project: JSON dumps
+vozd_dumps/

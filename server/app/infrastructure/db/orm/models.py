@@ -77,14 +77,16 @@ class Source(Base):
     __tablename__ = "sources"
     __table_args__ = (
         Index(
-            "uq_sources_source_type_external_id",
+            "uq_sources_project_source_type_external_id",
+            "project",
             "source_type",
             "external_id",
             unique=True,
             postgresql_where=text("external_id IS NOT NULL AND deleted_at IS NULL"),
         ),
         Index(
-            "uq_sources_source_type_username",
+            "uq_sources_project_source_type_username",
+            "project",
             "source_type",
             "username",
             unique=True,
@@ -93,6 +95,11 @@ class Source(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Проект-владелец данных: "wall" (по умолчанию, прежнее поведение) или "vozd".
+    # Все ORM-SELECT'ы по умолчанию видят только project='wall' (см. project_scope.py).
+    project: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="wall", server_default="wall", index=True
+    )
     name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     url: Mapped[str] = mapped_column(Text, nullable=False)
 
@@ -229,8 +236,15 @@ class SourceSchwartzAnalysis(Base):
 
 class Post(Base):
     __tablename__ = "posts"
+    __table_args__ = (
+        Index("ix_posts_project_owner_vk_post", "project", "owner_id", "vk_post_id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # Проект-владелец данных (см. Source.project / project_scope.py)
+    project: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="wall", server_default="wall", index=True
+    )
     source_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("sources.id", ondelete="SET NULL"),
@@ -248,6 +262,10 @@ class Post(Base):
     reactions: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     attachments: Mapped[list | None] = mapped_column(JSON, nullable=True)
     payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Чекпойнт сбора комментариев (используется только проектом vozd)
+    comments_collected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -762,3 +780,12 @@ class LemmaBufferEntry(Base):
     last_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+# ─── Проекты: изоляция wall / vozd ──────────────────────────────────────────
+# Импорт в конце файла: модели vozd регистрируются в Base.metadata (alembic),
+# а глобальный фильтр project='wall' вешается на Post и Source.
+from app.infrastructure.db.orm import models_vozd  # noqa: E402,F401
+from app.infrastructure.db.project_scope import register_project_scope  # noqa: E402
+
+register_project_scope(Post, Source)

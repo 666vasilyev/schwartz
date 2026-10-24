@@ -101,6 +101,16 @@ class Settings(BaseSettings):
     # Включена ли фоновая задача кластеризации (в тестах можно выключить).
     clustering_enabled: bool = True
 
+    # ── Проект «воздействие» (vozd) ────────────────────────────────────────
+    # Дампы JSON, которые пишутся по завершении прогона сбора
+    vozd_dump_dir: str = "./vozd_dumps"
+    vozd_posts_per_source_default: int = 300
+    vozd_posts_per_source_max: int = 1000
+    # Сколько последних постов/репостов собирать со стены участника
+    vozd_profile_posts_limit: int = 100
+    # Минимальный интервал между VK-запросами сбора vozd (сек); не влияет на wall
+    vozd_vk_min_interval_seconds: float = 0.34
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "production"
