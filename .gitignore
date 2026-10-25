@@ -78,3 +78,6 @@ server\app\utils\tg_session_exporter.py
 *.csv
 # vozd project: JSON dumps
 vozd_dumps/
+# local helper scripts and any JSON files
+scripts/
+dump.json

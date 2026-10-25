@@ -22,6 +22,7 @@ from app.presentation.schemas.vozd import (
     VozdGroupUpdate,
     VozdSourceAdd,
 )
+from app.use_case.vozd import dataset as dataset_uc
 from app.use_case.vozd import dump as dump_uc
 from app.use_case.vozd import groups as uc
 
@@ -145,3 +146,41 @@ async def get_user(
     if platform not in ("vk", "telegram"):
         raise HTTPException(status_code=422, detail="platform: vk | telegram")
     return await uc.user_profile(db, platform, external_id, group_id)
+
+
+_DATASET_DOC = (
+    "Датасет группы: название, описание, ресурсы (паблики) и комментаторы по убыванию числа комментариев — "
+    "у каждого его комментарии (с указанием паблика) и информация о пользователе."
+)
+
+
+@router.get("/groups/{group_id}/dataset", summary="Датасет группы по id", description=_DATASET_DOC)
+async def group_dataset_by_id(
+    group_id: int = Path(..., ge=1),
+    min_comments: int = Query(1, ge=1, description="Минимум комментариев у комментатора"),
+    skip: int = Query(0, ge=0),
+    limit: int | None = Query(None, ge=1, le=5000, description="Сколько комментаторов вернуть (по умолчанию все)"),
+    include: str = Query("groups", description="Что добавить к профилю: groups, friends, posts (через запятую), all или none"),
+    db: AsyncSession = Depends(get_vozd_session),
+) -> dict[str, Any]:
+    group = await uc._get_group(db, group_id)
+    return await dataset_uc.build_dataset(
+        db, group, min_comments=min_comments, skip=skip, limit=limit, include=dataset_uc.parse_include(include)
+    )
+
+
+# Регистрируется последним: путь из одного сегмента не должен перехватывать /groups, /runs, /users.
+@router.get("/{group_name}", summary="Датасет группы по названию", description=_DATASET_DOC)
+async def group_dataset_by_name(
+    group_name: str = Path(..., min_length=1, description="Название социальной группы (URL-кодированное)"),
+    min_comments: int = Query(1, ge=1, description="Минимум комментариев у комментатора"),
+    skip: int = Query(0, ge=0),
+    limit: int | None = Query(None, ge=1, le=5000, description="Сколько комментаторов вернуть (по умолчанию все)"),
+    include: str = Query("groups", description="Что добавить к профилю: groups, friends, posts (через запятую), all или none"),
+    db: AsyncSession = Depends(get_vozd_session),
+) -> dict[str, Any]:
+    include_parts = dataset_uc.parse_include(include)
+    group = await dataset_uc.get_group_by_name(db, group_name)
+    return await dataset_uc.build_dataset(
+        db, group, min_comments=min_comments, skip=skip, limit=limit, include=include_parts
+    )

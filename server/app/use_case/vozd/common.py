@@ -174,26 +174,37 @@ def participants_query(sources: list[Source]) -> Select:
 
 
 async def user_details(
-    db: AsyncSession, users: list[VozdUser], *, with_profile: bool = True
+    db: AsyncSession,
+    users: list[VozdUser],
+    *,
+    with_profile: bool = True,
+    parts: frozenset[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Сериализация пользователей пачкой: профиль, группы, друзья, последние посты."""
+    """Сериализация пользователей пачкой: профиль, группы, друзья, последние посты.
+
+    `parts` ограничивает, что подгружать из {"groups", "friends", "posts"}; None — всё.
+    """
     if not users:
         return []
+
+    def want(part: str) -> bool:
+        return parts is None or part in parts
+
     ids = [u.id for u in users]
     groups: dict[int, list[dict]] = {}
     friends: dict[int, list[int]] = {}
     wall: dict[int, list[dict]] = {}
     if with_profile:
-        for g in (await db.execute(select(VozdUserGroup).where(VozdUserGroup.user_id.in_(ids)))).scalars():
+        for g in (await db.execute(select(VozdUserGroup).where(VozdUserGroup.user_id.in_(ids if want("groups") else [])))).scalars():
             groups.setdefault(g.user_id, []).append(
                 {"id": g.group_external_id, "name": g.name, "screen_name": g.screen_name, "url": g.url}
             )
-        for f in (await db.execute(select(VozdUserFriend).where(VozdUserFriend.user_id.in_(ids)))).scalars():
+        for f in (await db.execute(select(VozdUserFriend).where(VozdUserFriend.user_id.in_(ids if want("friends") else [])))).scalars():
             friends.setdefault(f.user_id, []).append(f.friend_external_id)
         for p in (
             await db.execute(
                 select(VozdUserPost)
-                .where(VozdUserPost.user_id.in_(ids))
+                .where(VozdUserPost.user_id.in_(ids if want("posts") else []))
                 .order_by(VozdUserPost.published_at.desc().nulls_last())
             )
         ).scalars():
