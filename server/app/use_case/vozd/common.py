@@ -42,6 +42,21 @@ def iso(dt: Any) -> str | None:
     return dt.isoformat() if dt is not None else None
 
 
+def author_uid_for(platform: str, author_id: Any) -> str | None:
+    """Универсальный ID автора: человек — `vk:123`, сообщество — `vk:community123`."""
+    if not isinstance(author_id, int) or author_id == 0:
+        return None
+    prefix = _UID_PREFIX.get(platform, platform)
+    return f"{prefix}:{author_id}" if author_id > 0 else f"{prefix}:community{abs(author_id)}"
+
+
+def repost_text_only(repost: Any) -> Any:
+    """Репост без вложений: проект собирает только текст и эмодзи."""
+    if not isinstance(repost, dict):
+        return repost
+    return {k: v for k, v in repost.items() if k != "original_attachments"}
+
+
 async def group_sources(db: AsyncSession, group_id: int) -> list[Source]:
     q = (
         select(Source)
@@ -103,10 +118,10 @@ def post_to_dict(src: Source, post: Post, comments: list[PostComment] | None) ->
         "post_id": post.vk_post_id or post.external_id,
         "text": post.text,
         "published_at": iso(post.published_at),
-        "author_uid": user_uid(platform, author_id) if isinstance(author_id, int) and author_id > 0 else None,
+        "author_uid": author_uid_for(platform, author_id),
         "author_id": author_id,
         "reactions": post.reactions,
-        "repost": payload.get("repost"),
+        "repost": repost_text_only(payload.get("repost")),
         "comments_collected_at": iso(post.comments_collected_at),
     }
     if comments is not None:
@@ -190,7 +205,7 @@ async def user_details(
                     "text": p.text,
                     "published_at": iso(p.published_at),
                     "is_repost": p.is_repost,
-                    "repost_of": p.repost_of,
+                    "repost_of": repost_text_only(p.repost_of),
                     "reactions": p.reactions,
                 }
             )

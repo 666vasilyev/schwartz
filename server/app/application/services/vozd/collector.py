@@ -124,7 +124,7 @@ class Collector:
                 if self.params["comments_enabled"]:
                     await self.stage_comments()
             elif stage == RunStage.PROFILES:
-                if self.params["collect_profiles"] and self.params["comments_enabled"]:
+                if self.params["collect_profiles"]:
                     await self.stage_profiles()
         self.run.stage = RunStage.DONE
 
