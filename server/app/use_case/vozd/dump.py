@@ -13,6 +13,7 @@ from app.infrastructure.db.orm.models import Post
 from app.infrastructure.db.orm.models_vozd import SocialGroup, VozdUser
 from app.infrastructure.db.orm.session import AsyncSessionLocal
 from app.infrastructure.db.project_scope import PROJECT_VOZD, use_project_scope
+from app.use_case.vozd import blacklist as bl
 from app.use_case.vozd import common
 
 _POST_BATCH = 100
@@ -32,7 +33,8 @@ async def iter_dump(group_id: int) -> AsyncGenerator[str, None]:
             raise LookupError("Социальная группа не найдена")
         sources = await common.group_sources(db, group_id)
         src_by_id = {s.id: s for s in sources}
-        stats = await common.group_stats(db, sources)
+        flt = await bl.load_filter(db, group_id, sources)
+        stats = await common.group_stats(db, sources, flt)
 
         yield "{"
         yield f'"format": "vozd-dump/1", "generated_at": {_j(datetime.now(tz=timezone.utc).isoformat())},'
@@ -44,21 +46,16 @@ async def iter_dump(group_id: int) -> AsyncGenerator[str, None]:
         first = True
         last_id = 0
         src_ids = list(src_by_id)
+        pv = bl.post_visible(flt)
         while src_ids:
-            posts = list(
-                (
-                    await db.execute(
-                        select(Post)
-                        .where(Post.source_id.in_(src_ids), Post.id > last_id)
-                        .order_by(Post.id)
-                        .limit(_POST_BATCH)
-                    )
-                ).scalars()
-            )
+            pq = select(Post).where(Post.source_id.in_(src_ids), Post.id > last_id)
+            if pv is not None:
+                pq = pq.where(pv)
+            posts = list((await db.execute(pq.order_by(Post.id).limit(_POST_BATCH))).scalars())
             if not posts:
                 break
             last_id = posts[-1].id
-            cmap = await common.comments_by_post(db, [p.id for p in posts])
+            cmap = await common.comments_by_post(db, [p.id for p in posts], flt, sources)
             for p in posts:
                 item = common.post_to_dict(src_by_id[p.source_id], p, cmap.get(p.id, []))
                 yield ("" if first else ",") + _j(item)
@@ -69,14 +66,14 @@ async def iter_dump(group_id: int) -> AsyncGenerator[str, None]:
         # ── участники: профиль + что и где писали ──
         yield '"users": ['
         first = True
-        id_rows = (await db.execute(common.participants_query(sources).order_by(VozdUser.id))).scalars().all()
+        id_rows = (await db.execute(common.participants_query(sources, flt).order_by(VozdUser.id))).scalars().all()
         for off in range(0, len(id_rows), _USER_BATCH):
             chunk_ids = id_rows[off : off + _USER_BATCH]
             users = list(
                 (await db.execute(select(VozdUser).where(VozdUser.id.in_(chunk_ids)).order_by(VozdUser.id))).scalars()
             )
-            details = await common.user_details(db, users, with_profile=True)
-            activity = await common.user_activity(db, users, sources)
+            details = await common.user_details(db, users, with_profile=True, flt=flt)
+            activity = await common.user_activity(db, users, sources, flt)
             for u, d in zip(users, details):
                 comments = activity.get(u.id, [])
                 d["activity"] = {

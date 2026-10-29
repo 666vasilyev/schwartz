@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.db.orm.models import Post, Source, SourceStatus
@@ -30,6 +30,7 @@ from app.presentation.schemas.vozd import (
     VozdSourceIn,
 )
 from app.use_case.vk.resolve import execute as vk_resolve
+from app.use_case.vozd import blacklist as bl
 from app.use_case.vozd import common
 from app.utils.logger import get_logger
 
@@ -245,18 +246,35 @@ async def _last_run(db: AsyncSession, group_id: int) -> VozdRun | None:
     ).scalar_one_or_none()
 
 
-async def list_groups(db: AsyncSession) -> dict[str, Any]:
+def _escape_like(q: str) -> str:
+    return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+async def list_groups(
+    db: AsyncSession, *, q: str | None = None, skip: int = 0, limit: int = 50
+) -> dict[str, Any]:
+    """Список групп. `q` — поиск по названию и описанию (без учёта регистра); без `q` — все группы.
+    `skip`/`limit` — постраничная выдача (бесконечная прокрутка); `total` — всего подходящих групп."""
+    cond = [SocialGroup.deleted_at.is_(None)]
+    term = (q or "").strip()
+    if term:
+        like = f"%{_escape_like(term)}%"
+        cond.append(
+            or_(SocialGroup.name.ilike(like, escape="\\"), SocialGroup.description.ilike(like, escape="\\"))
+        )
+    total = (await db.execute(select(func.count()).select_from(SocialGroup).where(*cond))).scalar_one()
     groups = list(
         (
             await db.execute(
-                select(SocialGroup).where(SocialGroup.deleted_at.is_(None)).order_by(SocialGroup.id)
+                select(SocialGroup).where(*cond).order_by(SocialGroup.id).offset(skip).limit(limit)
             )
         ).scalars()
     )
     items = []
     for g in groups:
         sources = await common.group_sources(db, g.id)
-        stats = await common.group_stats(db, sources)
+        flt = await bl.load_filter(db, g.id, sources)
+        stats = await common.group_stats(db, sources, flt)
         last = await _last_run(db, g.id)
         items.append(
             {
@@ -267,17 +285,39 @@ async def list_groups(db: AsyncSession) -> dict[str, Any]:
                 "last_run": run_to_dict(last) if last else None,
             }
         )
-    return {"items": items, "total": len(items)}
+    return {
+        "items": items,
+        "total": int(total),
+        "skip": skip,
+        "limit": limit,
+        "has_more": skip + len(items) < int(total),
+        "q": term or None,
+    }
 
 
 async def group_detail(db: AsyncSession, group_id: int) -> dict[str, Any]:
     g = await _get_group(db, group_id)
     sources = await common.group_sources(db, g.id)
     last = await _last_run(db, g.id)
+    flt = await bl.load_filter(db, g.id, sources)
     out = common.group_header(g, sources)
-    out["stats"] = await common.group_stats(db, sources)
+    out["stats"] = await common.group_stats(db, sources, flt)
+    out["blacklist"] = {
+        "users": sum(len(v) for v in flt.blocked.values()),
+        "words": await _words_count(db, g.id),
+    }
     out["last_run"] = run_to_dict(last) if last else None
     return out
+
+
+async def _words_count(db: AsyncSession, group_id: int) -> int:
+    from app.infrastructure.db.orm.models_vozd import VozdBlacklistWord
+
+    return int(
+        (
+            await db.execute(select(func.count()).select_from(VozdBlacklistWord).where(VozdBlacklistWord.group_id == group_id))
+        ).scalar_one()
+    )
 
 
 async def group_data(
@@ -289,46 +329,70 @@ async def group_data(
     users_skip: int,
     users_limit: int,
     include_profiles: bool,
+    users_q: str | None = None,
 ) -> dict[str, Any]:
-    """Данные группы: посты с комментариями (универсальные ID) и участники с их активностью."""
+    """Данные группы: посты с комментариями (универсальные ID) и участники с их активностью.
+
+    `users_q` — поиск среди участников (имя, фамилия, username, id или uid). Пользователи и слова
+    из чёрных списков группы в выдачу не попадают."""
     g = await _get_group(db, group_id)
     sources = await common.group_sources(db, g.id)
+    flt = await bl.load_filter(db, g.id, sources)
     src_by_id = {s.id: s for s in sources}
     out = common.group_header(g, sources)
-    out["stats"] = await common.group_stats(db, sources)
+    out["stats"] = await common.group_stats(db, sources, flt)
 
     posts: list[Post] = []
     if src_by_id and posts_limit > 0:
+        pq = select(Post).where(Post.source_id.in_(list(src_by_id)))
+        pv = bl.post_visible(flt)
+        if pv is not None:
+            pq = pq.where(pv)
         posts = list(
             (
                 await db.execute(
-                    select(Post)
-                    .where(Post.source_id.in_(list(src_by_id)))
-                    .order_by(Post.published_at.desc().nulls_last(), Post.id.desc())
+                    pq.order_by(Post.published_at.desc().nulls_last(), Post.id.desc())
                     .offset(posts_skip)
                     .limit(posts_limit)
                 )
             ).scalars()
         )
-    cmap = await common.comments_by_post(db, [p.id for p in posts])
+    cmap = await common.comments_by_post(db, [p.id for p in posts], flt, sources)
     out["posts"] = [common.post_to_dict(src_by_id[p.source_id], p, cmap.get(p.id, [])) for p in posts]
 
+    search = common.user_search_clause(users_q) if users_q and users_q.strip() else None
+    participants = common.participants_query(sources, flt)
+    users_total = out["stats"]["participants"]
+    if search is not None:
+        users_total = (
+            await db.execute(
+                select(func.count()).select_from(VozdUser).where(VozdUser.id.in_(participants), search)
+            )
+        ).scalar_one()
     users: list[VozdUser] = []
     if users_limit > 0:
-        ids_q = common.participants_query(sources).order_by(VozdUser.id).offset(users_skip).limit(users_limit)
-        ids = list((await db.execute(ids_q)).scalars())
+        ids_q = select(VozdUser.id).where(VozdUser.id.in_(participants))
+        if search is not None:
+            ids_q = ids_q.where(search)
+        ids = list((await db.execute(ids_q.order_by(VozdUser.id).offset(users_skip).limit(users_limit))).scalars())
         if ids:
             users = list(
                 (await db.execute(select(VozdUser).where(VozdUser.id.in_(ids)).order_by(VozdUser.id))).scalars()
             )
-    details = await common.user_details(db, users, with_profile=include_profiles)
-    activity = await common.user_activity(db, users, sources)
+    details = await common.user_details(db, users, with_profile=include_profiles, flt=flt)
+    activity = await common.user_activity(db, users, sources, flt)
     for u, d in zip(users, details):
         d["activity"] = {"comments_count": len(activity[u.id]), "comments": activity[u.id]}
     out["users"] = details
     out["paging"] = {
         "posts": {"skip": posts_skip, "limit": posts_limit, "returned": len(posts), "total": out["stats"]["posts"]},
-        "users": {"skip": users_skip, "limit": users_limit, "returned": len(users), "total": out["stats"]["participants"]},
+        "users": {
+            "skip": users_skip,
+            "limit": users_limit,
+            "returned": len(users),
+            "total": int(users_total),
+            "q": users_q.strip() if users_q and users_q.strip() else None,
+        },
     }
     return out
 
@@ -345,13 +409,52 @@ async def user_profile(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
     sources = None
+    flt = None
     if group_id is not None:
         await _get_group(db, group_id)
         sources = await common.group_sources(db, group_id)
-    d = (await common.user_details(db, [user], with_profile=True))[0]
-    act = (await common.user_activity(db, [user], sources))[user.id]
+        flt = await bl.load_filter(db, group_id, sources)
+        if flt.is_blocked(platform, external_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь в чёрном списке этой группы"
+            )
+    d = (await common.user_details(db, [user], with_profile=True, flt=flt))[0]
+    act = (await common.user_activity(db, [user], sources, flt))[user.id]
     d["activity"] = {"comments_count": len(act), "comments": act}
     return d
+
+
+# ── чёрные списки ───────────────────────────────────────────────────────────
+
+
+async def blacklist_users(db: AsyncSession, group_id: int) -> dict[str, Any]:
+    await _get_group(db, group_id)
+    return await bl.list_users(db, group_id)
+
+
+async def blacklist_add_user(db: AsyncSession, group_id: int, uid: str, note: str | None) -> dict[str, Any]:
+    await _get_group(db, group_id)
+    return await bl.add_user(db, group_id, uid, note)
+
+
+async def blacklist_remove_user(db: AsyncSession, group_id: int, uid: str) -> dict[str, Any]:
+    await _get_group(db, group_id)
+    return await bl.remove_user(db, group_id, uid)
+
+
+async def blacklist_words(db: AsyncSession, group_id: int) -> dict[str, Any]:
+    await _get_group(db, group_id)
+    return await bl.list_words(db, group_id)
+
+
+async def blacklist_add_words(db: AsyncSession, group_id: int, words: list[str]) -> dict[str, Any]:
+    await _get_group(db, group_id)
+    return await bl.add_words(db, group_id, words)
+
+
+async def blacklist_remove_word(db: AsyncSession, group_id: int, word_id: int) -> dict[str, Any]:
+    await _get_group(db, group_id)
+    return await bl.remove_word(db, group_id, word_id)
 
 
 # ── прогоны ─────────────────────────────────────────────────────────────────

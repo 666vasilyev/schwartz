@@ -356,6 +356,7 @@ class Collector:
                 row.parent_id = parent_row.id if parent_row is not None and parent_row.id else None
                 row.from_id = c.get("from_id")
                 row.text = c.get("text")
+                row.attachments = c.get("attachments") or None
                 date = c.get("date")
                 row.published_at = _unix_dt(date) if isinstance(date, (int, float)) else _iso_dt(date)
             await self.db.flush()
@@ -517,7 +518,8 @@ class Collector:
             row.groups_status = vk.error_status(exc)
         # стена: последние посты и репосты
         try:
-            posts = await vk.user_wall(row.external_id, posts_limit)
+            posts, wall_total = await vk.user_wall(row.external_id, posts_limit)
+            row.profile = {**(row.profile or {}), "wall_posts_total": wall_total}
             await self.db.execute(delete(VozdUserPost).where(VozdUserPost.user_id == uid))
             seen_posts: set[tuple[int, str]] = set()
             for p in posts:

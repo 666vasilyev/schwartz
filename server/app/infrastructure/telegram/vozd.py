@@ -14,6 +14,26 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _message_attachments(msg: Any) -> list[dict[str, Any]] | None:
+    """Вложения сообщения: тип (и ссылка для превью-ссылки). Файлы Telegram по прямой ссылке недоступны."""
+    out: list[dict[str, Any]] = []
+    try:
+        for kind in ("photo", "sticker", "gif", "video", "voice", "audio", "document"):
+            if getattr(msg, kind, None):
+                out.append({"type": kind})
+                break
+        preview = getattr(msg, "web_preview", None)
+        url = getattr(preview, "url", None)
+        if url:
+            item: dict[str, Any] = {"type": "link", "url": url}
+            if getattr(preview, "title", None):
+                item["title"] = preview.title
+            out.append(item)
+    except Exception:  # noqa: BLE001
+        return None
+    return out or None
+
+
 def _sender_dict(sender: Any, about: str | None = None) -> dict[str, Any] | None:
     if sender is None:
         return None
@@ -105,6 +125,7 @@ async def fetch_comments_for_posts(
                             "thread_root_id": None,
                             "from_id": int(sid) if sid is not None else None,
                             "text": c.message or None,
+                            "attachments": _message_attachments(c),
                             "date": c.date.isoformat(),
                             "likes_count": likes or None,
                             "deleted": False,

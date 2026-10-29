@@ -17,6 +17,8 @@ from app.infrastructure.db.orm.session import get_db
 from app.infrastructure.db.project_scope import PROJECT_VOZD, use_project_scope
 from app.presentation.api.dependencies import get_current_user
 from app.presentation.schemas.vozd import (
+    VozdBlacklistUserAdd,
+    VozdBlacklistWordsAdd,
     VozdCollectRequest,
     VozdGroupCreate,
     VozdGroupUpdate,
@@ -43,8 +45,13 @@ async def create_group(body: VozdGroupCreate, db: AsyncSession = Depends(get_voz
 
 
 @router.get("/groups", summary="Список социальных групп мониторинга")
-async def list_groups(db: AsyncSession = Depends(get_vozd_session)) -> dict[str, Any]:
-    return await uc.list_groups(db)
+async def list_groups(
+    q: str | None = Query(None, max_length=255, description="Поиск по названию и описанию; без q — все группы"),
+    skip: int = Query(0, ge=0, description="Сколько групп пропустить (для бесконечной прокрутки)"),
+    limit: int = Query(50, ge=1, le=200, description="Сколько групп вернуть"),
+    db: AsyncSession = Depends(get_vozd_session),
+) -> dict[str, Any]:
+    return await uc.list_groups(db, q=q, skip=skip, limit=limit)
 
 
 @router.get("/groups/{group_id}", summary="Группа: название, описание, состав, статистика")
@@ -87,6 +94,9 @@ async def group_data(
     users_skip: int = Query(0, ge=0),
     users_limit: int = Query(100, ge=0, le=1000),
     include_profiles: bool = Query(True, description="Включить профили участников (группы, друзья, посты)"),
+    users_q: str | None = Query(
+        None, max_length=255, description="Поиск среди участников: имя, фамилия, username, id или uid (vk:123)"
+    ),
     db: AsyncSession = Depends(get_vozd_session),
 ) -> dict[str, Any]:
     return await uc.group_data(
@@ -97,6 +107,7 @@ async def group_data(
         users_skip=users_skip,
         users_limit=users_limit,
         include_profiles=include_profiles,
+        users_q=users_q,
     )
 
 
@@ -146,6 +157,47 @@ async def get_user(
     if platform not in ("vk", "telegram"):
         raise HTTPException(status_code=422, detail="platform: vk | telegram")
     return await uc.user_profile(db, platform, external_id, group_id)
+
+
+# ── чёрные списки группы ────────────────────────────────────────────────────
+
+
+@router.get("/groups/{group_id}/blacklist/users", summary="Чёрный список пользователей группы")
+async def blacklist_users(group_id: int = Path(..., ge=1), db: AsyncSession = Depends(get_vozd_session)) -> dict[str, Any]:
+    return await uc.blacklist_users(db, group_id)
+
+
+@router.post("/groups/{group_id}/blacklist/users", summary="Добавить пользователя в чёрный список группы")
+async def blacklist_add_user(
+    body: VozdBlacklistUserAdd, group_id: int = Path(..., ge=1), db: AsyncSession = Depends(get_vozd_session)
+) -> dict[str, Any]:
+    return await uc.blacklist_add_user(db, group_id, body.uid, body.note)
+
+
+@router.delete("/groups/{group_id}/blacklist/users/{uid}", summary="Убрать пользователя из чёрного списка (uid: vk:123)")
+async def blacklist_remove_user(
+    group_id: int = Path(..., ge=1), uid: str = Path(...), db: AsyncSession = Depends(get_vozd_session)
+) -> dict[str, Any]:
+    return await uc.blacklist_remove_user(db, group_id, uid)
+
+
+@router.get("/groups/{group_id}/blacklist/words", summary="Чёрный список слов группы")
+async def blacklist_words(group_id: int = Path(..., ge=1), db: AsyncSession = Depends(get_vozd_session)) -> dict[str, Any]:
+    return await uc.blacklist_words(db, group_id)
+
+
+@router.post("/groups/{group_id}/blacklist/words", summary="Добавить слова в чёрный список группы")
+async def blacklist_add_words(
+    body: VozdBlacklistWordsAdd, group_id: int = Path(..., ge=1), db: AsyncSession = Depends(get_vozd_session)
+) -> dict[str, Any]:
+    return await uc.blacklist_add_words(db, group_id, body.words)
+
+
+@router.delete("/groups/{group_id}/blacklist/words/{word_id}", summary="Убрать слово из чёрного списка")
+async def blacklist_remove_word(
+    group_id: int = Path(..., ge=1), word_id: int = Path(..., ge=1), db: AsyncSession = Depends(get_vozd_session)
+) -> dict[str, Any]:
+    return await uc.blacklist_remove_word(db, group_id, word_id)
 
 
 _DATASET_DOC = (

@@ -15,6 +15,7 @@ from app.infrastructure.db.orm.models_vozd import (
     VozdUserPost,
     social_group_sources,
 )
+from app.use_case.vozd import blacklist as bl
 
 PLATFORM_BY_SOURCE = {"vk": "vk", "telegram": "telegram"}
 _UID_PREFIX = {"vk": "vk", "telegram": "tg"}
@@ -101,6 +102,7 @@ def comment_to_dict(src: Source, post: Post, c: PostComment, id_to_cid: dict[int
         "author_uid": author_uid,
         "author_id": c.from_id,
         "text": c.text,
+        "attachments": c.attachments,
         "published_at": iso(c.published_at),
     }
 
@@ -131,24 +133,34 @@ def post_to_dict(src: Source, post: Post, comments: list[PostComment] | None) ->
     return out
 
 
-async def comments_by_post(db: AsyncSession, post_ids: list[int]) -> dict[int, list[PostComment]]:
+async def comments_by_post(
+    db: AsyncSession,
+    post_ids: list[int],
+    flt: "bl.GroupFilter | None" = None,
+    sources: list[Source] | None = None,
+) -> dict[int, list[PostComment]]:
     if not post_ids:
         return {}
-    rows = (
-        await db.execute(
-            select(PostComment)
-            .where(PostComment.post_id.in_(post_ids))
-            .order_by(PostComment.post_id, PostComment.published_at.asc().nulls_last(), PostComment.id)
-        )
-    ).scalars().all()
+    q = (
+        select(PostComment)
+        .join(Post, Post.id == PostComment.post_id)
+        .where(PostComment.post_id.in_(post_ids))
+        .order_by(PostComment.post_id, PostComment.published_at.asc().nulls_last(), PostComment.id)
+    )
+    visible = bl.comment_visible(flt, sources or [])
+    if visible is not None:
+        q = q.where(visible)
+    rows = (await db.execute(q)).scalars().all()
     out: dict[int, list[PostComment]] = {}
     for r in rows:
         out.setdefault(r.post_id, []).append(r)
     return out
 
 
-def participants_query(sources: list[Source]) -> Select:
-    """Подзапрос id участников (комментаторы + авторы постов) для источников группы."""
+def participants_query(sources: list[Source], flt: "bl.GroupFilter | None" = None) -> Select:
+    """Подзапрос id участников (комментаторы + авторы постов) для источников группы.
+
+    С `flt` исключает пользователей из чёрного списка и учитывает только видимые посты/комментарии."""
     clauses = []
     for platform, stype in (("vk", "vk"), ("telegram", "telegram")):
         src_ids = [s.id for s in sources if s.source_type == stype]
@@ -162,6 +174,12 @@ def participants_query(sources: list[Source]) -> Select:
         authors = select(Post.payload["author_id"].as_integer()).where(
             Post.source_id.in_(src_ids), Post.payload["author_id"].as_integer() > 0
         )
+        cv = bl.comment_visible(flt, sources)
+        if cv is not None:
+            commenters = commenters.where(cv)
+        pv = bl.post_visible(flt)
+        if pv is not None:
+            authors = authors.where(pv)
         clauses.append(
             and_(
                 VozdUser.platform == platform,
@@ -170,7 +188,38 @@ def participants_query(sources: list[Source]) -> Select:
         )
     if not clauses:
         return select(VozdUser.id).where(False)
-    return select(VozdUser.id).where(or_(*clauses))
+    q = select(VozdUser.id).where(or_(*clauses))
+    nb = bl.user_not_blocked(flt)
+    return q.where(nb) if nb is not None else q
+
+
+def user_search_clause(query: str):
+    """Поиск пользователей: имя, фамилия, username, числовой id или uid (vk:123 / tg:456).
+
+    Несколько слов — все должны найтись (например «Иван Петров»)."""
+    import re
+
+    clauses = []
+    for term in query.split():
+        t = term.strip()
+        t = re.sub(r"^(https?://)?(www\.)?(m\.)?(vk\.(com|ru)|t\.me|telegram\.me)/", "", t, flags=re.I).lstrip("@")
+        if not t:
+            continue
+        esc = t.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{esc}%"
+        parts = [
+            VozdUser.first_name.ilike(like, escape="\\"),
+            VozdUser.last_name.ilike(like, escape="\\"),
+            VozdUser.username.ilike(like, escape="\\"),
+        ]
+        m = re.fullmatch(r"(vk|tg|telegram):(\d+)", t, flags=re.I)
+        if m:
+            platform = "vk" if m.group(1).lower() == "vk" else "telegram"
+            parts.append(and_(VozdUser.platform == platform, VozdUser.external_id == int(m.group(2))))
+        elif re.fullmatch(r"id?(\d+)", t, flags=re.I):
+            parts.append(VozdUser.external_id == int(re.fullmatch(r"id?(\d+)", t, flags=re.I).group(1)))
+        clauses.append(or_(*parts))
+    return and_(*clauses) if clauses else None
 
 
 async def user_details(
@@ -179,6 +228,7 @@ async def user_details(
     *,
     with_profile: bool = True,
     parts: frozenset[str] | None = None,
+    flt: "bl.GroupFilter | None" = None,
 ) -> list[dict[str, Any]]:
     """Сериализация пользователей пачкой: профиль, группы, друзья, последние посты.
 
@@ -220,6 +270,12 @@ async def user_details(
                     "reactions": p.reactions,
                 }
             )
+    if flt is not None and flt.matcher is not None and wall:
+        # Посты со стены пользователя со словами из ЧС не выдаются
+        for uid_, items in wall.items():
+            texts = [(i.get("text") or "") + " " + ((i.get("repost_of") or {}).get("original_text") or "") for i in items]
+            hide = await flt.hide_texts(texts)
+            wall[uid_] = [i for i, h in zip(items, hide) if not h]
     out = []
     for u in users:
         d: dict[str, Any] = {
@@ -250,7 +306,10 @@ async def user_details(
 
 
 async def user_activity(
-    db: AsyncSession, users: list[VozdUser], sources: list[Source] | None
+    db: AsyncSession,
+    users: list[VozdUser],
+    sources: list[Source] | None,
+    flt: "bl.GroupFilter | None" = None,
 ) -> dict[int, list[dict[str, Any]]]:
     """Комментарии пользователей (где и что писали) с универсальными ID."""
     result: dict[int, list[dict[str, Any]]] = {u.id: [] for u in users}
@@ -268,6 +327,9 @@ async def user_activity(
         )
         if sources is not None:
             q = q.where(Source.id.in_([s.id for s in sources]))
+            visible = bl.comment_visible(flt, sources)
+            if visible is not None:
+                q = q.where(visible)
         rows = (await db.execute(q)).all()
         parents: dict[int, int] = {}
         if rows:
@@ -286,26 +348,35 @@ async def user_activity(
                     "source_name": src.name,
                     "parent_uid": comment_uid(src, post, parents[c.parent_id]) if c.parent_id in parents else None,
                     "text": c.text,
+                    "attachments": c.attachments,
                     "published_at": iso(c.published_at),
                 }
             )
     return result
 
 
-async def group_stats(db: AsyncSession, sources: list[Source]) -> dict[str, int]:
+async def group_stats(
+    db: AsyncSession, sources: list[Source], flt: "bl.GroupFilter | None" = None
+) -> dict[str, int]:
     ids = [s.id for s in sources]
     if not ids:
         return {"sources": 0, "posts": 0, "comments": 0, "participants": 0, "profiles_collected": 0}
-    posts = (await db.execute(select(func.count()).select_from(Post).where(Post.source_id.in_(ids)))).scalar_one()
-    comments = (
-        await db.execute(
-            select(func.count())
-            .select_from(PostComment)
-            .join(Post, Post.id == PostComment.post_id)
-            .where(Post.source_id.in_(ids))
-        )
-    ).scalar_one()
-    pq = participants_query(sources).subquery()
+    pq_posts = select(func.count()).select_from(Post).where(Post.source_id.in_(ids))
+    pv = bl.post_visible(flt)
+    if pv is not None:
+        pq_posts = pq_posts.where(pv)
+    posts = (await db.execute(pq_posts)).scalar_one()
+    q_comments = (
+        select(func.count())
+        .select_from(PostComment)
+        .join(Post, Post.id == PostComment.post_id)
+        .where(Post.source_id.in_(ids))
+    )
+    cv = bl.comment_visible(flt, sources)
+    if cv is not None:
+        q_comments = q_comments.where(cv)
+    comments = (await db.execute(q_comments)).scalar_one()
+    pq = participants_query(sources, flt).subquery()
     participants = (await db.execute(select(func.count()).select_from(pq))).scalar_one()
     collected = (
         await db.execute(

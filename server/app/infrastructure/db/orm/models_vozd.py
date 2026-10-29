@@ -162,3 +162,37 @@ class VozdRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class VozdBlacklistUser(Base):
+    """Чёрный список пользователей социальной группы: скрываются из выдачи и статистики."""
+
+    __tablename__ = "vozd_blacklist_users"
+    __table_args__ = (
+        UniqueConstraint("group_id", "platform", "external_id", name="uq_vozd_blacklist_users"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("social_groups.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    platform: Mapped[str] = mapped_column(String(16), nullable=False)  # vk | telegram
+    external_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class VozdBlacklistWord(Base):
+    """Чёрный список слов социальной группы: посты и комментарии с этими словами (с учётом словоформ)
+    скрываются из выдачи и статистики."""
+
+    __tablename__ = "vozd_blacklist_words"
+    __table_args__ = (UniqueConstraint("group_id", "lemma", name="uq_vozd_blacklist_words"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("social_groups.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    word: Mapped[str] = mapped_column(String(255), nullable=False)  # как ввёл оператор
+    lemma: Mapped[str] = mapped_column(String(255), nullable=False)  # начальная форма (для сопоставления)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -39,4 +39,17 @@ class VozdSourceAdd(BaseModel):
     sources: list[VozdSourceIn] = Field(..., min_length=1)
 
 
+class VozdBlacklistUserAdd(BaseModel):
+    uid: str = Field(
+        ...,
+        pattern=r"^(vk|tg|telegram):\d+$",
+        description="Универсальный ID пользователя: vk:123 или tg:456",
+    )
+    note: str | None = Field(None, max_length=1000, description="Заметка (необязательно)")
+
+
+class VozdBlacklistWordsAdd(BaseModel):
+    words: list[str] = Field(..., min_length=1, max_length=200, description="Слова или короткие фразы")
+
+
 VozdDict = dict[str, Any]

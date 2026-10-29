@@ -24,7 +24,7 @@ from app.infrastructure.vk.client import (
     VkRateLimit,
     vk_call,
 )
-from app.infrastructure.vk.normalizer import normalize_post
+from app.infrastructure.vk.normalizer import normalize_attachments, normalize_post
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -159,6 +159,7 @@ def _comment_row(c: dict, *, thread_root: int | None) -> dict[str, Any] | None:
         "thread_root_id": thread_root,
         "from_id": int(c["from_id"]) if c.get("from_id") is not None else None,
         "text": c.get("text") or None,
+        "attachments": normalize_attachments(c.get("attachments")) or None,
         "date": c.get("date"),
         "likes_count": likes.get("count"),
         "deleted": bool(c.get("deleted")),
@@ -284,14 +285,17 @@ async def groups_get(user_id: int) -> list[dict[str, Any]]:
     return out
 
 
-async def user_wall(user_id: int, limit: int = 100) -> list[dict[str, Any]]:
-    """Последние `limit` постов со стены пользователя, включая репосты."""
+async def user_wall(user_id: int, limit: int = 100) -> tuple[list[dict[str, Any]], int | None]:
+    """Последние `limit` постов со стены пользователя, включая репосты, и общее число записей на стене."""
     out: list[dict[str, Any]] = []
+    total: int | None = None
     offset = 0
     while len(out) < limit:
         resp = await call(
             "wall.get", owner_id=user_id, count=min(100, limit - len(out)), offset=offset
         )
+        if (resp or {}).get("count") is not None:
+            total = int(resp["count"])
         items = (resp or {}).get("items") or []
         if not items:
             break
@@ -304,4 +308,4 @@ async def user_wall(user_id: int, limit: int = 100) -> list[dict[str, Any]]:
         offset += len(items)
         if offset >= int((resp or {}).get("count") or 0):
             break
-    return out[:limit]
+    return out[:limit], total
