@@ -271,7 +271,29 @@ class LemmaBlacklistListResponse(BaseModel):
             "от lang не зависит — поле ничего не фильтрует."
         ),
     )
-    lemmas: list[str] = Field(default_factory=list, description="Чёрный список лемм, отсортирован по алфавиту")
+    lemmas: list[str] = Field(
+        default_factory=list,
+        description="Леммы текущей страницы (без limit — весь список), отсортированы по алфавиту (или desc)",
+    )
+    items: list["LemmaBlacklistItem"] = Field(
+        default_factory=list,
+        description="То же, что lemmas, но объектами: лемма + язык (ru/en/de/null) — для таблицы и бейджей на фронте",
+    )
+    total: int = Field(0, description="Сколько лемм подошло под фильтры (до пагинации)")
+    skip: int = 0
+    limit: int | None = Field(None, description="None — пагинация не применялась")
+    counts_by_lang: dict[str, int] = Field(
+        default_factory=dict,
+        description="Сколько лемм подошло под search по языкам {ru,en,de,other} — для вкладок/фильтров (без учёта word_lang)",
+    )
+
+
+class LemmaBlacklistItem(BaseModel):
+    lemma: str
+    lang: str | None = Field(None, description="ru / en / de; null — в лемме нет букв")
+
+
+LemmaBlacklistListResponse.model_rebuild()
 
 
 class LemmaParameterCountsResponse(BaseModel):
@@ -424,6 +446,23 @@ class CategoriesLemmaCkmResponse(BaseModel):
     values: dict[str, LemmaDimensionScore] = Field(
         description="Ключ — имя параметра ЦКМ (см. CSV_COLUMNS в lemma_scorer.py)",
     )
+    by_category: list["CategoriesLemmaCkmResponse"] | None = Field(
+        None,
+        description=(
+            "Только при per_category=true: то же самое отдельно для КАЖДОЙ запрошенной "
+            "категории (свой топ лемм по каждому параметру ЦКМ). Верхнеуровневые "
+            "posts_*/values при этом остаются общими (объединёнными)."
+        ),
+    )
+
+
+class CategoryOverviewItem(BaseModel):
+    """Тренды + ЦКМ с топом лемм для одной категории (при per_category=true)."""
+
+    category_name: str
+    lang: LemmaLang
+    trending: TrendingClustersResponse
+    ckm: CategoriesLemmaCkmResponse
 
 
 class CategoriesOverviewResponse(BaseModel):
@@ -438,6 +477,14 @@ class CategoriesOverviewResponse(BaseModel):
     date_to: datetime
     trending: TrendingClustersResponse
     ckm: CategoriesLemmaCkmResponse
+    by_category: list[CategoryOverviewItem] | None = Field(
+        None,
+        description=(
+            "Только при per_category=true: отдельный срез (тренды + ЦКМ с топом лемм) "
+            "для каждой запрошенной категории, в порядке запроса. "
+            "trending/ckm выше остаются объединёнными по всем категориям."
+        ),
+    )
 
 
 class CategoryLemmaDayItem(BaseModel):

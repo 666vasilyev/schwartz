@@ -41,8 +41,13 @@ async def execute(
     limit: int | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
+    per_category: bool = False,
 ) -> CategoriesLemmaCkmResponse:
     """
+    per_category=True — дополнительно заполняет by_category: отдельный результат
+    (со своим топом лемм на параметр) для каждой запрошенной категории.
+    Объединённые posts_*/values остаются как раньше.
+
     categories — список пар (category_name, lang), как в lemma_categories.py.
     Источник, входящий сразу в несколько запрошенных категорий, встретится в
     выборке один раз НА КАЖДУЮ такую категорию (посты оцениваются словарём
@@ -115,10 +120,26 @@ async def execute(
         for col in CSV_COLUMNS
     }
 
+    by_category = None
+    if per_category and len(categories) > 0:
+        by_category = [
+            await execute(
+                db,
+                [(name, lang)],
+                top_n_lemmas=top_n_lemmas,
+                limit=limit,
+                date_from=date_from,
+                date_to=date_to,
+                per_category=False,
+            )
+            for name, lang in categories
+        ]
+
     return CategoriesLemmaCkmResponse(
         categories=[CategoryLangItem(category_name=name, lang=lang) for name, lang in categories],
         posts_total=posts_total,
         posts_analyzed=len(all_vectors),
         posts_skipped_empty=skipped_total,
         values=values,
+        by_category=by_category,
     )

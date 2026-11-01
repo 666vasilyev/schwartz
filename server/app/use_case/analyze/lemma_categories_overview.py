@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.services.content.lemma_scorer import LemmaLang
 from app.infrastructure.repositories import list_trending_combined
-from app.presentation.schemas.analysis import CategoriesOverviewResponse
+from app.presentation.schemas.analysis import CategoriesOverviewResponse, CategoryOverviewItem
 from app.presentation.schemas.cluster import TrendingClustersResponse
 from app.use_case.analyze import lemma_categories_combined as lemma_categories_combined_uc
 from app.use_case.clusters._trending_common import build_trending_items
@@ -38,41 +38,66 @@ async def execute(
     posts_limit: int | None = None,
     lemma_lang: LemmaLang = LemmaLang.ru,
     lemma_top_n: int = 10,
+    per_category: bool = False,
 ) -> CategoriesOverviewResponse:
-    category_names = sorted({name for name, _lang in categories})
-
     # window_hours передаётся дробным (list_trending_combined просто кладёт его в
     # timedelta(hours=...), которой всё равно int или float) — так окно точно
     # совпадает с [date_from; date_to], а не округляется до целых часов.
     window_hours = (date_to - date_from).total_seconds() / 3600
-    rows = await list_trending_combined(
-        db,
-        category_names=category_names or None,
-        window_hours=window_hours,
-        min_posts=min_posts,
-        limit=trending_limit,
-        now=date_to,
-        use_published_at=True,
-        require_active=False,
-    )
-    items = await build_trending_items(
-        db, rows, window_start=date_from, window_end=date_to,
-        lemma_lang=lemma_lang, lemma_top_n=lemma_top_n,
-    )
-    trending = TrendingClustersResponse(
-        items=items,
-        window_hours=round(window_hours),
-        min_posts=min_posts,
-        source_ids=[],
-        category_names=category_names,
-        as_of=date_from.date(),
-    )
+
+    async def _trending(names: list[str]) -> TrendingClustersResponse:
+        rows = await list_trending_combined(
+            db,
+            category_names=names or None,
+            window_hours=window_hours,
+            min_posts=min_posts,
+            limit=trending_limit,
+            now=date_to,
+            use_published_at=True,
+            require_active=False,
+        )
+        items = await build_trending_items(
+            db, rows, window_start=date_from, window_end=date_to,
+            lemma_lang=lemma_lang, lemma_top_n=lemma_top_n,
+        )
+        return TrendingClustersResponse(
+            items=items,
+            window_hours=round(window_hours),
+            min_posts=min_posts,
+            source_ids=[],
+            category_names=names,
+            as_of=date_from.date(),
+        )
+
+    category_names = sorted({name for name, _lang in categories})
+    trending = await _trending(category_names)
 
     ckm = await lemma_categories_combined_uc.execute(
         db, categories, top_n_lemmas=top_n_lemmas, limit=posts_limit,
         date_from=date_from, date_to=date_to,
     )
 
+    by_category = None
+    if per_category:
+        by_category = []
+        seen: set[str] = set()
+        for name, lang in categories:
+            if name in seen:
+                continue
+            seen.add(name)
+            by_category.append(
+                CategoryOverviewItem(
+                    category_name=name,
+                    lang=lang,
+                    trending=await _trending([name]),
+                    ckm=await lemma_categories_combined_uc.execute(
+                        db, [(name, lang)], top_n_lemmas=top_n_lemmas, limit=posts_limit,
+                        date_from=date_from, date_to=date_to,
+                    ),
+                )
+            )
+
     return CategoriesOverviewResponse(
         date_from=date_from, date_to=date_to, trending=trending, ckm=ckm,
+        by_category=by_category,
     )

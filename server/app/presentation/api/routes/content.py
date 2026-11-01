@@ -36,6 +36,7 @@ from app.presentation.schemas.analysis import (
     LemmaAppendResponse,
     LemmaBlacklistActionRequest,
     LemmaBlacklistActionResponse,
+    LemmaBlacklistItem,
     LemmaBlacklistListResponse,
     LemmaCategoriesRequest,
     LemmaCategoryActionRequest,
@@ -186,6 +187,10 @@ async def analyze_categories_lemma_combined(
     ),
     date_from: datetime | None = _DATE_FROM_QUERY,
     date_to: datetime | None = _DATE_TO_QUERY,
+    per_category: bool = Query(
+        False,
+        description="true — дополнительно вернуть by_category: топ лемм отдельно для каждой категории",
+    ),
     db: AsyncSession = Depends(get_session),
 ) -> CategoriesLemmaCkmResponse:
     """
@@ -208,6 +213,7 @@ async def analyze_categories_lemma_combined(
         limit=limit,
         date_from=date_from,
         date_to=date_to,
+        per_category=per_category,
     )
 
 
@@ -234,6 +240,13 @@ async def lemma_categories_overview(
     ),
     lemma_top_n: int = Query(
         10, ge=0, le=50, description="Сколько самых частых лемм на трендовый кластер отдавать в new_lemmas (0 — не считать)"
+    ),
+    per_category: bool = Query(
+        False,
+        description=(
+            "true — дополнительно вернуть by_category: для КАЖДОЙ категории из body отдельно "
+            "тренды и ЦКМ с топом лемм (trending/ckm остаются объединёнными)"
+        ),
     ),
     db: AsyncSession = Depends(get_session),
 ) -> CategoriesOverviewResponse:
@@ -262,6 +275,7 @@ async def lemma_categories_overview(
         posts_limit=posts_limit,
         lemma_lang=lemma_lang,
         lemma_top_n=lemma_top_n,
+        per_category=per_category,
     )
 
 
@@ -555,10 +569,34 @@ def get_lemma_blacklist(
         ),
     ),
     search: str | None = Query(None, description="Подстрока для фильтра по лемме (регистронезависимо)"),
+    skip: int = Query(0, ge=0, description="Пагинация: сколько лемм пропустить"),
+    limit: int | None = Query(
+        None, ge=1, le=1000,
+        description="Пагинация: размер страницы. Не указан — вернуть весь список (как раньше).",
+    ),
+    sort: Literal["asc", "desc"] = Query("asc", description="Порядок по алфавиту"),
 ) -> LemmaBlacklistListResponse:
+    matched = lemma_scorer.list_blacklist(search=search, word_lang=word_lang)
+    if sort == "desc":
+        matched = matched[::-1]
+    total = len(matched)
+    page = matched[skip : skip + limit] if limit else matched[skip:]
+
+    # Счётчики по языкам для вкладок/фильтров — считаются по search, но без word_lang.
+    counts: dict[str, int] = {"ru": 0, "en": 0, "de": 0, "other": 0}
+    for lemma in lemma_scorer.list_blacklist(search=search):
+        counts[lemma_scorer.detect_lemma_lang(lemma) or "other"] += 1
+
     return LemmaBlacklistListResponse(
         lang=lang,
-        lemmas=lemma_scorer.list_blacklist(search=search, word_lang=word_lang),
+        lemmas=page,
+        items=[
+            LemmaBlacklistItem(lemma=l, lang=lemma_scorer.detect_lemma_lang(l)) for l in page
+        ],
+        total=total,
+        skip=skip,
+        limit=limit,
+        counts_by_lang=counts,
     )
 
 
