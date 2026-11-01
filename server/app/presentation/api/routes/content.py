@@ -30,6 +30,7 @@ from app.presentation.schemas.analysis import (
     CategoriesOverviewResponse,
     CategoriesSchwartzTimeseriesResponse,
     CategoryLemmaByDayResponse,
+    CategoryTopResponse,
     CategoryLangItem,
     LemmaAnalysisResult,
     LemmaAppendRequest,
@@ -76,6 +77,7 @@ from app.use_case.analyze import lemma_categories_by_day as analyze_lemma_catego
 from app.use_case.analyze import lemma_categories_combined as analyze_lemma_categories_combined
 from app.use_case.analyze import lemma_categories_overview as analyze_lemma_categories_overview
 from app.use_case.analyze import lemma_category as analyze_lemma_category
+from app.use_case.analyze import lemma_category_top as analyze_lemma_category_top
 from app.use_case.analyze import lemma_category_by_day as analyze_lemma_category_by_day
 from app.use_case.analyze import lemma_source as analyze_lemma_source
 from app.use_case.analyze import lemma_trend_candidates as analyze_lemma_trend_candidates
@@ -319,6 +321,27 @@ async def analyze_category_lemma(
 ) -> SourceLemmaAnalysisResponse:
     return await analyze_lemma_category.execute(
         db, category_name, lang=lang, limit=limit, date_from=date_from, date_to=date_to
+    )
+
+
+@router.get(
+    "/lemma/category/{category_name}/top",
+    response_model=CategoryTopResponse,
+    summary="Топ категорий лемм и параметров ЦКМ для одной категории источников (напр. «Федеральные СМИ»)",
+)
+async def analyze_category_lemma_top(
+    category_name: str,
+    lang: LemmaLang = _LANG_QUERY,
+    top_n: int = Query(10, ge=1, le=100, description="Сколько категорий лемм / параметров ЦКМ вернуть"),
+    top_n_lemmas: int = Query(10, ge=1, le=100, description="Сколько лемм показать у каждого параметра ЦКМ"),
+    limit: int | None = Query(None, ge=1, description="Последние N постов категории (по дате публикации)"),
+    date_from: datetime | None = _DATE_FROM_QUERY,
+    date_to: datetime | None = _DATE_TO_QUERY,
+    db: AsyncSession = Depends(get_session),
+) -> CategoryTopResponse:
+    return await analyze_lemma_category_top.execute(
+        db, category_name, lang=lang, top_n=top_n, top_n_lemmas=top_n_lemmas,
+        limit=limit, date_from=date_from, date_to=date_to,
     )
 
 

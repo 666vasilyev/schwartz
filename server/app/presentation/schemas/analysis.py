@@ -421,6 +421,35 @@ class LemmaDimensionScore(BaseModel):
     )
 
 
+class CategoryShareItem(BaseModel):
+    category: str = Field(description="Категория лемм из словаря (колонка «Категории»)")
+    share: float = Field(description="Доля в общей частоте категорий (сумма по всем категориям = 1.0)")
+
+
+class CategoryValueTop(BaseModel):
+    name: str = Field(description="Параметр ЦКМ (Безопасность, Красота, ...)")
+    score: float = Field(description="Нормированное значение параметра (сумма всех 10 = 1.0)")
+    lemmas: list[str] = Field(
+        default_factory=list, description="Топ лемм, давших вес этому параметру (по числу постов)"
+    )
+
+
+class CategoryTopResponse(BaseModel):
+    """Топ категорий лемм и параметров ЦКМ для ОДНОЙ категории источников (напр. «Федеральные СМИ»)."""
+
+    category_name: str
+    lang: LemmaLang
+    posts_total: int
+    posts_analyzed: int
+    posts_skipped_empty: int = 0
+    top_categories: list[CategoryShareItem] = Field(
+        default_factory=list, description="Топ категорий лемм словаря, по убыванию доли"
+    )
+    top_values: list[CategoryValueTop] = Field(
+        default_factory=list, description="Параметры ЦКМ по убыванию score, у каждого — топ лемм"
+    )
+
+
 class CategoriesLemmaCkmResponse(BaseModel):
     """
     ЦКМ по ОБЪЕДИНЁННОМУ результату для списка категорий (у каждой — свой язык
