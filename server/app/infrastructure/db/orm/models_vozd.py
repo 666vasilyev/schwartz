@@ -66,6 +66,15 @@ class SocialGroup(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # posts_per_source, comments_enabled, collect_profiles, profile_posts_limit …
     params: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Автосбор по расписанию: включён ли, интервал (часы), время следующего запуска
+    schedule_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    schedule_interval_hours: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=24, server_default=text("24")
+    )
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    last_scheduled_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()

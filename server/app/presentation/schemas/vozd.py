@@ -12,6 +12,20 @@ class VozdGroupParams(BaseModel):
     comments_per_post_limit: int | None = Field(None, ge=1, description="Лимит комментариев на пост (Telegram); пусто = все")
     collect_profiles: bool | None = Field(None, description="Собирать профили участников после сбора")
     profile_posts_limit: int | None = Field(None, ge=1, le=1000, description="Постов со стены пользователя")
+    comments_refresh_days: int | None = Field(
+        None,
+        ge=0,
+        le=365,
+        description="Заново собирать комментарии постов младше N дней (0 — не пересобирать). "
+        "Для автосбора по умолчанию 7",
+    )
+
+
+class VozdSchedule(BaseModel):
+    """Автосбор группы по расписанию."""
+
+    enabled: bool | None = Field(None, description="Включить/выключить автосбор")
+    interval_hours: int | None = Field(None, ge=1, le=720, description="Интервал между запусками, часы (по умолчанию 24)")
 
 
 class VozdSourceIn(BaseModel):
@@ -23,12 +37,14 @@ class VozdGroupCreate(BaseModel):
     description: str | None = Field(None, description="Описание (оператор)")
     sources: list[VozdSourceIn] = Field(..., min_length=1, description="Состав: ссылки на группы/каналы")
     params: VozdGroupParams | None = None
+    schedule: VozdSchedule | None = None
 
 
 class VozdGroupUpdate(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
     params: VozdGroupParams | None = None
+    schedule: VozdSchedule | None = None
 
 
 class VozdCollectRequest(VozdGroupParams):

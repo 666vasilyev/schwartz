@@ -10,6 +10,7 @@ from app.application.services.content import embedder
 from app.application.services.scheduler.runner import scheduler
 from app.application.services.worker.runner import worker as collection_worker
 from app.application.services.vozd.runner import runner as vozd_runner
+from app.application.services.vozd.scheduler import vozd_scheduler
 from app.core.config import get_settings
 from app.infrastructure.clients import llm_registry
 from app.infrastructure.db.orm.session import AsyncSessionLocal
@@ -73,8 +74,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     scheduler.start()
     clustering_runner.start()
     vozd_runner.start()
+    vozd_scheduler.start()
     yield
     logger.info(Events.WORKER_SHUTDOWN, message="Application shutdown")
+    await vozd_scheduler.stop()
     await vozd_runner.stop()
     await clustering_runner.stop()
     await scheduler.stop()
@@ -148,4 +151,5 @@ async def health() -> dict:
         },
         "scheduler": scheduler.state(),
         "clustering": clustering_runner.state(),
+        "vozd_scheduler": vozd_scheduler.state(),
     }

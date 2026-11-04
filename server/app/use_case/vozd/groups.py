@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -27,6 +27,7 @@ from app.presentation.schemas.vozd import (
     VozdCollectRequest,
     VozdGroupCreate,
     VozdGroupUpdate,
+    VozdSchedule,
     VozdSourceIn,
 )
 from app.use_case.vk.resolve import execute as vk_resolve
@@ -168,6 +169,35 @@ def _params_dict(params) -> dict[str, Any] | None:
     return d or None
 
 
+def apply_schedule(g: SocialGroup, sch: VozdSchedule | None) -> None:
+    """Применить изменения расписания к группе (next_run_at пересчитывается)."""
+    if sch is None:
+        return
+    now = _now()
+    enabled_before = bool(g.schedule_enabled)
+    interval_before = g.schedule_interval_hours
+    if sch.interval_hours is not None:
+        g.schedule_interval_hours = sch.interval_hours
+    if sch.enabled is not None:
+        g.schedule_enabled = sch.enabled
+    if not g.schedule_enabled:
+        g.next_run_at = None
+    elif not enabled_before or g.next_run_at is None:
+        g.next_run_at = now  # включили — первый запуск в ближайшую минуту
+    elif g.schedule_interval_hours != interval_before:
+        base = g.last_scheduled_run_at or now
+        g.next_run_at = max(base + timedelta(hours=g.schedule_interval_hours), now)
+
+
+def schedule_to_dict(g: SocialGroup) -> dict[str, Any]:
+    return {
+        "enabled": bool(g.schedule_enabled),
+        "interval_hours": g.schedule_interval_hours or 24,
+        "next_run_at": common.iso(g.next_run_at),
+        "last_run_at": common.iso(g.last_scheduled_run_at),
+    }
+
+
 async def create_group(db: AsyncSession, body: VozdGroupCreate) -> dict[str, Any]:
     dup = (
         await db.execute(
@@ -176,7 +206,14 @@ async def create_group(db: AsyncSession, body: VozdGroupCreate) -> dict[str, Any
     ).first()
     if dup is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Группа с таким названием уже есть")
-    group = SocialGroup(name=body.name, description=body.description, params=_params_dict(body.params))
+    group = SocialGroup(
+        name=body.name,
+        description=body.description,
+        params=_params_dict(body.params),
+        schedule_enabled=False,
+        schedule_interval_hours=24,
+    )
+    apply_schedule(group, body.schedule)
     db.add(group)
     await db.flush()
     await _link_sources(db, group.id, body.sources)
@@ -194,6 +231,7 @@ async def update_group(db: AsyncSession, group_id: int, body: VozdGroupUpdate) -
         merged = dict(g.params or {})
         merged.update(body.params.model_dump(exclude_none=True))
         g.params = merged or None
+    apply_schedule(g, body.schedule)
     await db.commit()
     return await group_detail(db, group_id)
 
@@ -229,6 +267,7 @@ def run_to_dict(r: VozdRun) -> dict[str, Any]:
         "status": r.status,
         "stage": r.stage,
         "params": r.params,
+        "trigger": (r.params or {}).get("trigger", "manual"),
         "progress": r.progress,
         "error_message": r.error_message,
         "created_at": common.iso(r.created_at),
@@ -282,6 +321,7 @@ async def list_groups(
                 "name": g.name,
                 "description": g.description,
                 "stats": stats,
+                "schedule": schedule_to_dict(g),
                 "last_run": run_to_dict(last) if last else None,
             }
         )
@@ -306,6 +346,7 @@ async def group_detail(db: AsyncSession, group_id: int) -> dict[str, Any]:
         "users": sum(len(v) for v in flt.blocked.values()),
         "words": await _words_count(db, g.id),
     }
+    out["schedule"] = schedule_to_dict(g)
     out["last_run"] = run_to_dict(last) if last else None
     return out
 

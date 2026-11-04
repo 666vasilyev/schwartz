@@ -9,10 +9,10 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -72,6 +72,7 @@ def group_params(group: SocialGroup, run: VozdRun) -> dict[str, Any]:
         "comments_per_post_limit": None,
         "collect_profiles": True,
         "profile_posts_limit": s.vozd_profile_posts_limit,
+        "comments_refresh_days": 0,  # ручной сбор не пересобирает; автосбор задаёт N (по умолчанию 7)
     }
     merged.update({k: v for k, v in (group.params or {}).items() if v is not None})
     merged.update({k: v for k, v in (run.params or {}).items() if v is not None})
@@ -229,7 +230,28 @@ class Collector:
 
     # ── стадия 2: комментарии ──────────────────────────────────────────────
 
+    async def _refresh_recent_posts(self) -> None:
+        """Сбросить чекпойнт комментариев у недавних постов — новые комментарии под ними будут собраны.
+
+        Один раз за прогон (флаг в progress): при возобновлении после рестарта посты заново не сбрасываются."""
+        days = int(self.params.get("comments_refresh_days") or 0)
+        if days <= 0 or self.progress.get("comments_refresh_done"):
+            return
+        cutoff = _now() - timedelta(days=days)
+        res = await self.db.execute(
+            update(Post)
+            .where(
+                Post.source_id.in_(self.source_ids()),
+                Post.comments_collected_at.is_not(None),
+                Post.published_at >= cutoff,
+            )
+            .values(comments_collected_at=None)
+            .execution_options(synchronize_session=False)
+        )
+        await self.checkpoint(comments_refresh_done=True, comments_refreshed_posts=int(res.rowcount or 0))
+
     async def stage_comments(self) -> None:
+        await self._refresh_recent_posts()
         total = (
             await self.db.execute(
                 select(func.count()).select_from(Post).where(Post.source_id.in_(self.source_ids()))

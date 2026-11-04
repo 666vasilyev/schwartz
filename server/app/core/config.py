@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     vozd_profile_posts_limit: int = 100
     # Минимальный интервал между VK-запросами сбора vozd (сек); не влияет на wall
     vozd_vk_min_interval_seconds: float = 0.34
+    # Автосбор по расписанию: как часто планировщик проверяет группы (сек) и глубина пересбора
+    # комментариев (посты младше N дней собираются заново), если не задана в параметрах группы
+    vozd_scheduler_tick_seconds: float = 60.0
+    vozd_comments_refresh_days_default: int = 7
 
     @property
     def is_production(self) -> bool:
