@@ -59,7 +59,7 @@ def _finish(ctx: AnalyticsContext, value: Any, at, cached: bool) -> Any:
     return value
 
 
-@calculator("II.28", llm=True, note="оценка ценностей по выборке текстов (шкала Шварца), гипотеза модели")
+@calculator("2.28", llm=True, note="оценка ценностей по выборке текстов (шкала Шварца), гипотеза модели")
 async def schwartz(ctx: AnalyticsContext):
     from app.application.services.content.schwartz_values import extract_schwartz_values_from_text
 
@@ -86,7 +86,7 @@ async def schwartz(ctx: AnalyticsContext):
     return _finish(ctx, *await ctx.cached("schwartz", factory))
 
 
-@calculator("III.14", llm=True, note="лексикон по всему корпусу + LLM-оценка деструктивности по выборке")
+@calculator("3.14", llm=True, note="лексикон по всему корпусу + LLM-оценка деструктивности по выборке")
 async def tonality(ctx: AnalyticsContext):
     from app.application.services.content.text import analyze_text
 
@@ -132,7 +132,7 @@ async def tonality(ctx: AnalyticsContext):
     return value
 
 
-@calculator("I.27", llm=True, note="краткое содержание описаний группы и источников — заявленные цели")
+@calculator("1.27", llm=True, note="краткое содержание описаний группы и источников — заявленные цели")
 async def declared_goals(ctx: AnalyticsContext):
     from app.application.services.content.llm_summarizer import summarize_post_texts
 
@@ -146,7 +146,7 @@ async def declared_goals(ctx: AnalyticsContext):
     return _finish(ctx, *await ctx.cached("goals", factory))
 
 
-@calculator("III.5", llm=True, note="топ постов по вовлечённости + краткое содержание")
+@calculator("3.5", llm=True, note="топ постов по вовлечённости + краткое содержание")
 async def popular_posts(ctx: AnalyticsContext):
     from app.application.services.content.llm_summarizer import summarize_post_texts
 
@@ -205,15 +205,15 @@ async def _motives(ctx: AnalyticsContext) -> dict[str, Any]:
 
 
 _MOTIVE_BY_ID = {
-    "II.9": "social_belonging",
-    "II.10": "self_realization",
-    "II.11": "informational",
-    "II.12": "entertainment",
-    "II.13": "protest",
+    "2.9": "social_belonging",
+    "2.10": "self_realization",
+    "2.11": "informational",
+    "2.12": "entertainment",
+    "2.13": "protest",
 }
 
 
-@calculator("II.9", "II.10", "II.11", "II.12", "II.13", llm=True, note="мотивы участия по выборке (один LLM-расчёт на все пять)")
+@calculator("2.9", "2.10", "2.11", "2.12", "2.13", llm=True, note="мотивы участия по выборке (один LLM-расчёт на все пять)")
 async def motives(ctx: AnalyticsContext):
     value = await _motives(ctx)
     key = _MOTIVE_BY_ID[ctx.metric_id]
@@ -268,13 +268,13 @@ async def _conflicts(ctx: AnalyticsContext) -> dict[str, Any]:
     return value
 
 
-@calculator("II.50", llm=True, note="типы конфликтов в самых «горячих» обсуждениях (LLM)")
+@calculator("2.50", llm=True, note="типы конфликтов в самых «горячих» обсуждениях (LLM)")
 async def conflict_types(ctx: AnalyticsContext):
     v = await _conflicts(ctx)
     return {"classified": v["classified"], "types": v["types"], "quality": v["quality"]}
 
 
-@calculator("II.51", "III.46", llm=True, note="причины конфликтов в самых «горячих» обсуждениях (LLM)")
+@calculator("2.51", "3.46", llm=True, note="причины конфликтов в самых «горячих» обсуждениях (LLM)")
 async def conflict_causes(ctx: AnalyticsContext):
     v = await _conflicts(ctx)
     return {"classified": v["classified"], "items": v["items"], "quality": v["quality"]}

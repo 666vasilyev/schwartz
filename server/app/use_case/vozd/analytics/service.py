@@ -21,7 +21,7 @@ from app.infrastructure.db.orm.models_vozd import (
 from app.use_case.vozd import blacklist as bl
 from app.use_case.vozd.analytics import calc_general, calc_graph, calc_llm, calc_participants  # noqa: F401  (регистрация)
 from app.use_case.vozd.analytics import util as u
-from app.use_case.vozd.analytics.catalog import CATALOG, SECTIONS, MetricSpec
+from app.use_case.vozd.analytics.catalog import CATALOG, SECTIONS, MetricSpec, normalize_id
 from app.use_case.vozd.analytics.context import AnalyticsContext, Window, as_utc, utcnow
 from app.use_case.vozd.analytics.registry import REGISTRY, InsufficientData, MetricUnavailable
 from app.use_case.vozd.common import group_sources, iso
@@ -148,69 +148,11 @@ async def _run_calc(ctx: AnalyticsContext, metric_id: str, calc_id: str) -> dict
     return out
 
 
-async def compute_metrics(
-    db: AsyncSession,
-    group_id: int,
-    metric_ids: list[str],
-    *,
-    window: Window,
-    sample_size: int,
-    sample_recent_days: int,
-    refresh: bool,
-    provider: str | None,
-    model: str | None,
-) -> dict[str, Any]:
-    group = await _get_group(db, group_id)
-    sources = await group_sources(db, group_id)
-    ctx = await build_context(
-        db, group, sources, window, sample_size=sample_size, sample_recent_days=sample_recent_days,
-        refresh=refresh, provider=provider, model=model,
-    )
-    experts = await _expert_map(db, group_id)
-    if any(m in ("I.1", "I.2") for m in metric_ids):
-        await record_member_snapshots(db, group, sources, min_interval=timedelta(hours=1))
-    results = []
-    for mid in dict.fromkeys(metric_ids):  # без повторов, в порядке запроса
-        spec, calc_id = _resolve(mid)
-        if spec is None:
-            results.append({"id": mid, "status": "unknown_metric", "reason": "нет в каталоге: GET /analytics/catalog"})
-            continue
-        item: dict[str, Any] = {"id": mid, "title": spec.title}
-        if spec.duplicate_of:
-            item["duplicate_of"] = spec.duplicate_of
-        if calc_id in REGISTRY:
-            item.update(await _run_calc(ctx, mid, calc_id))
-        else:
-            item["status"] = "expert" if mid in experts else "expert_pending"
-            hints = {}
-            for h in spec.hints:
-                hspec = CATALOG.get(h)
-                if hspec is None:
-                    continue
-                hid = hspec.duplicate_of or hspec.id
-                reg = REGISTRY.get(hid)
-                if reg is None:
-                    continue
-                if reg.llm:  # дорогие LLM-подсказки не считаем сами: только из кэша, если был расчёт
-                    hints[h] = {"status": "llm_on_demand", "reason": "запросите метрику отдельно (LLM)"}
-                    continue
-                hints[h] = await _run_calc(ctx, h, hid)
-            item["hints"] = hints
-        if mid in experts:
-            item["expert"] = _expert_dict(experts[mid])
-        results.append(item)
-    return {
-        "group_id": group_id,
-        "window": window.label(),
-        "blacklist_applied": bool(ctx.flt.active),
-        "results": results,
-    }
-
-
 # ── экспертный ввод ─────────────────────────────────────────────────────────
 
 
 async def set_expert(db: AsyncSession, group_id: int, metric_id: str, value: Any, justification: str | None, expert: str | None) -> dict[str, Any]:
+    metric_id = normalize_id(metric_id)
     await _get_group(db, group_id)
     if metric_id not in CATALOG:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Метрика {metric_id} не найдена в каталоге")
@@ -231,6 +173,7 @@ async def set_expert(db: AsyncSession, group_id: int, metric_id: str, value: Any
 
 
 async def delete_expert(db: AsyncSession, group_id: int, metric_id: str) -> dict[str, Any]:
+    metric_id = normalize_id(metric_id)
     await _get_group(db, group_id)
     res = await db.execute(
         delete(VozdAnalyticsExpert).where(
@@ -284,6 +227,7 @@ async def compare(
     provider: str | None = None,
     model: str | None = None,
 ) -> dict[str, Any]:
+    metric_id = normalize_id(metric_id)
     spec, calc_id = _resolve(metric_id)
     if spec is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"Метрика {metric_id} не найдена в каталоге")
@@ -306,7 +250,7 @@ async def compare(
     return {"id": metric_id, "title": spec.title, "before": out["before"], "after": out["after"], "diff": diff}
 
 
-# ── снимки численности (I.2) ────────────────────────────────────────────────
+# ── снимки численности (1.2) ────────────────────────────────────────────────
 
 
 async def record_member_snapshots(

@@ -26,7 +26,7 @@ def _texts(ctx_rows):
 # ── I. численность и активность ─────────────────────────────────────────────
 
 
-@calculator("I.1")
+@calculator("1.1")
 async def members(ctx: AnalyticsContext):
     total, items = ctx.members_total()
     known = [i for i in items if isinstance(i["members_count"], int)]
@@ -40,7 +40,7 @@ async def members(ctx: AnalyticsContext):
     }
 
 
-@calculator("I.2")
+@calculator("1.2")
 async def members_dynamics(ctx: AnalyticsContext):
     q = select(VozdMemberSnapshot).where(VozdMemberSnapshot.group_id == ctx.group.id)
     if ctx.window.date_from:
@@ -74,7 +74,7 @@ async def _active_ids(ctx: AnalyticsContext) -> set[tuple[str, int]]:
     return ids
 
 
-@calculator("I.5", "I.6")
+@calculator("1.5", "1.6")
 async def active_passive(ctx: AnalyticsContext):
     active = await _active_ids(ctx)
     total, _ = ctx.members_total()
@@ -93,7 +93,7 @@ async def active_passive(ctx: AnalyticsContext):
     return out
 
 
-@calculator("I.7")
+@calculator("1.7")
 async def activity_types(ctx: AnalyticsContext):
     posts = await ctx.posts()
     authors = {
@@ -115,7 +115,7 @@ async def activity_types(ctx: AnalyticsContext):
     }
 
 
-@calculator("I.8", "III.9")
+@calculator("1.8", "3.9")
 async def time_patterns(ctx: AnalyticsContext):
     matrix = [[0] * 24 for _ in range(7)]
     n = 0
@@ -139,7 +139,7 @@ async def time_patterns(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.1")
+@calculator("3.1")
 async def volume(ctx: AnalyticsContext):
     posts, comments = await ctx.posts(), await ctx.comments()
     by_day: dict[str, dict[str, int]] = defaultdict(lambda: {"posts": 0, "comments": 0})
@@ -165,7 +165,7 @@ async def volume(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.2", "I.21")
+@calculator("3.2", "1.21")
 async def peaks(ctx: AnalyticsContext):
     daily: Counter = Counter()
     for r in [*await ctx.posts(), *await ctx.comments()]:
@@ -189,7 +189,7 @@ async def peaks(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.3")
+@calculator("3.3")
 async def platforms_compare(ctx: AnalyticsContext):
     posts, comments = await ctx.posts(), await ctx.comments()
     out = []
@@ -214,7 +214,7 @@ async def platforms_compare(ctx: AnalyticsContext):
     return {"platforms": out}
 
 
-@calculator("III.4", "II.7")
+@calculator("3.4", "2.7")
 async def reactions(ctx: AnalyticsContext):
     posts = await ctx.posts()
     comments = await ctx.comments()
@@ -240,7 +240,7 @@ def _format_of(attachments: list, has_text: bool) -> list[str]:
     return kinds
 
 
-@calculator("I.19")
+@calculator("1.19")
 async def formats(ctx: AnalyticsContext):
     out = {}
     for name, rows in (("posts", await ctx.posts()), ("comments", await ctx.comments())):
@@ -253,7 +253,7 @@ async def formats(ctx: AnalyticsContext):
     return out
 
 
-@calculator("III.6")
+@calculator("3.6")
 async def content_vs_engagement(ctx: AnalyticsContext):
     posts = await ctx.posts()
     if len(posts) < 5:
@@ -274,7 +274,7 @@ async def content_vs_engagement(ctx: AnalyticsContext):
     }
 
 
-@calculator("I.17")
+@calculator("1.17")
 async def platforms(ctx: AnalyticsContext):
     posts, comments = await ctx.posts(), await ctx.comments()
     out = defaultdict(lambda: {"sources": 0, "posts": 0, "comments": 0})
@@ -287,7 +287,7 @@ async def platforms(ctx: AnalyticsContext):
     return {"platforms": [{"platform": k, **v} for k, v in sorted(out.items())]}
 
 
-@calculator("I.13")
+@calculator("1.13")
 async def naming(ctx: AnalyticsContext):
     await ctx.prepare()
     terms: Counter = Counter()
@@ -305,7 +305,7 @@ async def naming(ctx: AnalyticsContext):
     }
 
 
-@calculator("I.14", "II.8")
+@calculator("1.14", "2.8")
 async def language(ctx: AnalyticsContext):
     await ctx.prepare()
     cyr = lat = 0
@@ -326,7 +326,7 @@ async def language(ctx: AnalyticsContext):
         "by_platform": {k: {"cyrillic": u.share(v[0], v[0] + v[1]), "latin": u.share(v[1], v[0] + v[1])} for k, v in per.items()},
         "method": "доля кириллицы/латиницы в тексте",
     }
-    if ctx.metric_id == "II.8":
+    if ctx.metric_id == "2.8":
         hours = Counter(r.published_at.hour for r in [*await ctx.posts(), *await ctx.comments()] if r.published_at)
         out["activity_by_hour_utc"] = [hours.get(h, 0) for h in range(24)]
         out["note_timezone"] = "часовой пояс профилей не собирается; по часам активности оценивайте пояс косвенно"
@@ -336,7 +336,7 @@ async def language(ctx: AnalyticsContext):
 # ── тексты: лексика, стиль, тональность (S) ─────────────────────────────────
 
 
-@calculator("I.22", "III.50")
+@calculator("1.22", "3.50")
 async def external_links(ctx: AnalyticsContext):
     await ctx.prepare()
     domains: Counter = Counter()
@@ -364,7 +364,7 @@ async def external_links(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.7")
+@calculator("3.7")
 async def message_length(ctx: AnalyticsContext):
     await ctx.prepare()
     out = {}
@@ -379,7 +379,7 @@ async def message_length(ctx: AnalyticsContext):
     return out
 
 
-@calculator("III.8")
+@calculator("3.8")
 async def length_vs_engagement(ctx: AnalyticsContext):
     await ctx.prepare()
     posts = _texts(await ctx.posts())
@@ -400,7 +400,7 @@ async def length_vs_engagement(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.10")
+@calculator("3.10")
 async def seasonality(ctx: AnalyticsContext):
     dates = [r.published_at for r in [*await ctx.posts(), *await ctx.comments()] if r.published_at]
     if not dates:
@@ -412,7 +412,7 @@ async def seasonality(ctx: AnalyticsContext):
     return {"span_days": span, "by_month_of_year": [by_month.get(m, 0) for m in range(1, 13)]}
 
 
-@calculator("III.12", "II.17", "III.13")
+@calculator("3.12", "2.17", "3.13")
 async def argumentation(ctx: AnalyticsContext):
     await ctx.prepare()
     rows = _texts(await ctx.comments())
@@ -432,7 +432,7 @@ async def argumentation(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.17")
+@calculator("3.17")
 async def hot_topics(ctx: AnalyticsContext):
     await ctx.prepare()
     cnt: Counter = Counter()
@@ -453,7 +453,7 @@ async def hot_topics(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.29")
+@calculator("3.29")
 async def keywords(ctx: AnalyticsContext):
     await ctx.prepare()
     docs = [
@@ -482,7 +482,7 @@ async def keywords(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.16")
+@calculator("2.16")
 async def cognitive_activity(ctx: AnalyticsContext):
     await ctx.prepare()
     out = {}
@@ -496,7 +496,7 @@ async def cognitive_activity(ctx: AnalyticsContext):
     return out
 
 
-@calculator("II.19")
+@calculator("2.19")
 async def readability(ctx: AnalyticsContext):
     out = {}
     for name, rows in (("comments", _texts(await ctx.comments())), ("posts", _texts(await ctx.posts()))):
@@ -521,7 +521,7 @@ async def readability(ctx: AnalyticsContext):
     return out
 
 
-@calculator("II.20")
+@calculator("2.20")
 async def emotional_reactivity(ctx: AnalyticsContext):
     await ctx.prepare()
     rows = _texts(await ctx.comments())
@@ -536,7 +536,7 @@ async def emotional_reactivity(ctx: AnalyticsContext):
         "emotional_share": u.share(emotional, len(rows)),
         "avg_abs_tone": u.mean([abs(r.f.score) for r in rows]),
         "emotions": {k: emo.get(k, 0) for k in lx.EMOTIONS},
-        "method": "лексикон (по всем комментариям); LLM-уточнение по выборке доступно в III.14",
+        "method": "лексикон (по всем комментариям); LLM-уточнение по выборке доступно в 3.14",
     }
 
 
@@ -548,7 +548,7 @@ def _daily_scores(rows) -> dict[str, list[float]]:
     return d
 
 
-@calculator("II.21")
+@calculator("2.21")
 async def emotional_stability(ctx: AnalyticsContext):
     await ctx.prepare()
     rows = _texts(await ctx.comments())
@@ -567,7 +567,7 @@ async def emotional_stability(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.22")
+@calculator("2.22")
 async def group_attachment(ctx: AnalyticsContext):
     await ctx.prepare()
     rows = _texts(await ctx.comments())
@@ -581,7 +581,7 @@ async def group_attachment(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.23", "III.25")
+@calculator("2.23", "3.25")
 async def emoji_markers(ctx: AnalyticsContext):
     await ctx.prepare()
     out = {}
@@ -599,7 +599,7 @@ async def emoji_markers(ctx: AnalyticsContext):
     return out
 
 
-@calculator("III.26")
+@calculator("3.26")
 async def emoji_vs_engagement(ctx: AnalyticsContext):
     await ctx.prepare()
     posts = _texts(await ctx.posts())
@@ -611,7 +611,7 @@ async def emoji_vs_engagement(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.15", "III.19")
+@calculator("3.15", "3.19")
 async def triggers(ctx: AnalyticsContext):
     await ctx.prepare()
     daily = {d: (sum(v) / len(v), len(v)) for d, v in _daily_scores(_texts(await ctx.comments())).items() if len(v) >= 5}
@@ -632,7 +632,7 @@ async def triggers(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.20")
+@calculator("3.20")
 async def emotions(ctx: AnalyticsContext):
     await ctx.prepare()
     rows = _texts([*await ctx.posts(), *await ctx.comments()])
@@ -654,7 +654,7 @@ async def emotions(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.28")
+@calculator("3.28")
 async def style_over_time(ctx: AnalyticsContext):
     await ctx.prepare()
     by_m: dict[str, list] = defaultdict(list)
@@ -680,7 +680,7 @@ async def style_over_time(ctx: AnalyticsContext):
     return {"months": rows}
 
 
-@calculator("III.36")
+@calculator("3.36")
 async def profanity(ctx: AnalyticsContext):
     await ctx.prepare()
     out = {}
@@ -693,7 +693,7 @@ async def profanity(ctx: AnalyticsContext):
     return out
 
 
-@calculator("III.37")
+@calculator("3.37")
 async def profanity_vs_aggression(ctx: AnalyticsContext):
     await ctx.prepare()
     rows = [r for r in _texts(await ctx.comments())]
@@ -710,7 +710,7 @@ async def profanity_vs_aggression(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.43", "II.45")
+@calculator("2.43", "2.45")
 async def cohesion(ctx: AnalyticsContext):
     await ctx.prepare()
     comments = await ctx.comments()
@@ -743,7 +743,7 @@ def _threads(comments):
     return by_post
 
 
-@calculator("I.12", "II.53")
+@calculator("1.12", "2.53")
 async def conflict_threads(ctx: AnalyticsContext):
     await ctx.prepare()
     posts = {p.id: p for p in await ctx.posts()}
@@ -775,11 +775,11 @@ async def conflict_threads(ctx: AnalyticsContext):
         "threads_with_5plus_comments": sum(1 for cs in threads.values() if len(cs) >= 5),
         "conflict_threads": len(out),
         "top": out[:15],
-        "method": "обсуждения с долей негатива и агрессивной/нецензурной лексики выше порога; классификация типа — II.50/II.51 (LLM)",
+        "method": "обсуждения с долей негатива и агрессивной/нецензурной лексики выше порога; классификация типа — 2.50/2.51 (LLM)",
     }
 
 
-@calculator("III.45", "III.44")
+@calculator("3.45", "3.44")
 async def polarity_triggers(ctx: AnalyticsContext):
     await ctx.prepare()
     posts = {p.id: p for p in await ctx.posts()}

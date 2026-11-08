@@ -32,7 +32,7 @@ def _coverage(users, ok) -> dict:
     }
 
 
-@calculator("II.1")
+@calculator("2.1")
 async def sex(ctx: AnalyticsContext):
     users, ok = await _profiles(ctx)
     if not ok:
@@ -63,7 +63,7 @@ def _age(bdate: str, today: datetime) -> int | None:
     return age if 5 <= age <= 100 else None
 
 
-@calculator("II.2")
+@calculator("2.2")
 async def age(ctx: AnalyticsContext):
     users, ok = await _profiles(ctx)
     today = datetime.now(tz=timezone.utc)
@@ -81,7 +81,7 @@ async def age(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.3")
+@calculator("2.3")
 async def geography(ctx: AnalyticsContext):
     users, ok = await _profiles(ctx)
     cities: Counter = Counter()
@@ -103,7 +103,7 @@ async def geography(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.4")
+@calculator("2.4")
 async def education(ctx: AnalyticsContext):
     users, ok = await _profiles(ctx)
     if not ok:
@@ -128,7 +128,7 @@ async def education(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.5")
+@calculator("2.5")
 async def profession(ctx: AnalyticsContext):
     users, ok = await _profiles(ctx)
     if not ok:
@@ -157,7 +157,7 @@ async def profession(ctx: AnalyticsContext):
     }
 
 
-@calculator("I.18")
+@calculator("1.18")
 async def anonymity(ctx: AnalyticsContext):
     users, ok = await _profiles(ctx)
     if not users:
@@ -195,7 +195,7 @@ async def _split_old_new(ctx: AnalyticsContext):
     return boundary, new, old
 
 
-@calculator("II.46", "II.47", "II.48")
+@calculator("2.46", "2.47", "2.48")
 async def oldtimers_newcomers(ctx: AnalyticsContext):
     await ctx.prepare()
     boundary, new, old = await _split_old_new(ctx)

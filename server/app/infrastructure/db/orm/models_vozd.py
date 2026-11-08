@@ -257,3 +257,27 @@ class VozdMemberSnapshot(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (Index("ix_vozd_member_snapshots_group_time", "group_id", "captured_at"),)
+
+
+class VozdAnalyticsCache(Base):
+    """Последний рассчитанный результат метрики аналитики для группы и окна расчёта."""
+
+    __tablename__ = "vozd_analytics_cache"
+    __table_args__ = (
+        UniqueConstraint("group_id", "metric_id", "window_key", name="uq_vozd_analytics_cache"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("social_groups.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    metric_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    # all | d<N> (последние N дней) | YYYY-MM-DD..YYYY-MM-DD
+    window_key: Mapped[str] = mapped_column(String(64), nullable=False, default="all")
+    status: Mapped[str] = mapped_column(String(32), nullable=False)  # computed | insufficient_data | not_available | failed
+    quality: Mapped[str | None] = mapped_column(String(32), nullable=True)  # auto | llm_hypothesis
+    value: Mapped[dict | list | str | int | float | None] = mapped_column(JSON, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # inputs: на каких данных считали (последний успешный сбор, чёрные списки) — для пометки «устарело»
+    meta: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

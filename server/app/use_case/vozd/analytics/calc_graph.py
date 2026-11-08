@@ -130,7 +130,7 @@ async def _centralities(ctx: AnalyticsContext, gd: GraphData) -> dict[str, dict[
     return await ctx.memo("centralities", calc)
 
 
-@calculator("I.11")
+@calculator("1.11")
 async def leaders(ctx: AnalyticsContext):
     gd = await build_graph(ctx)
     _need_graph(gd)
@@ -157,7 +157,7 @@ async def leaders(ctx: AnalyticsContext):
     }
 
 
-@calculator("I.10")
+@calculator("1.10")
 async def subgroups(ctx: AnalyticsContext):
     gd = await build_graph(ctx)
     _need_graph(gd)
@@ -186,7 +186,7 @@ async def subgroups(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.35")
+@calculator("2.35")
 async def leaders_quantitative(ctx: AnalyticsContext):
     gd = await build_graph(ctx)
     if not gd.comments_by_user:
@@ -219,7 +219,7 @@ async def leaders_quantitative(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.36")
+@calculator("2.36")
 async def leaders_qualitative(ctx: AnalyticsContext):
     gd = await build_graph(ctx)
     cands = [n for n, k in gd.replies_received.most_common(30) if len(gd.tone_received.get(n, [])) >= 3]
@@ -240,7 +240,7 @@ async def leaders_qualitative(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.37")
+@calculator("2.37")
 async def leader_types(ctx: AnalyticsContext):
     gd = await build_graph(ctx)
     _need_graph(gd)
@@ -265,7 +265,7 @@ async def leader_types(ctx: AnalyticsContext):
     }
 
 
-@calculator("II.39", "II.40", "II.41")
+@calculator("2.39", "2.40", "2.41")
 async def influence_structure(ctx: AnalyticsContext):
     gd = await build_graph(ctx)
     _need_graph(gd)
@@ -286,7 +286,7 @@ async def influence_structure(ctx: AnalyticsContext):
         label = "decentralized"
     else:
         label = "hybrid"
-    wanted = {"II.39": "centralized", "II.40": "decentralized", "II.41": "hybrid"}.get(ctx.metric_id)
+    wanted = {"2.39": "centralized", "2.40": "decentralized", "2.41": "hybrid"}.get(ctx.metric_id)
     return {
         "structure": label,
         "matches_requested": (label == wanted) if wanted else None,
@@ -300,7 +300,7 @@ async def influence_structure(ctx: AnalyticsContext):
     }
 
 
-@calculator("III.48")
+@calculator("3.48")
 async def agenda_setters(ctx: AnalyticsContext):
     posts = await ctx.posts()
     gd = await build_graph(ctx)

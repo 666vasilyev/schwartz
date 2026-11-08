@@ -1,7 +1,6 @@
 """Схемы запросов проекта vozd."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -70,20 +69,6 @@ class VozdBlacklistWordsAdd(BaseModel):
 
 
 VozdDict = dict[str, Any]
-
-
-class VozdAnalyticsRequest(BaseModel):
-    """Расчёт списка метрик аналитики за один вызов."""
-
-    metrics: list[str] = Field(..., min_length=1, max_length=200, description="ID метрик из каталога: I.1, II.28, III.14 …")
-    window_days: int | None = Field(None, ge=1, le=3650, description="Окно расчёта: последние N дней (без окна — все данные)")
-    date_from: datetime | None = Field(None, description="Начало окна (приоритетнее window_days)")
-    date_to: datetime | None = Field(None, description="Конец окна")
-    sample_size: int = Field(200, ge=10, le=2000, description="Для LLM-метрик: сколько текстов брать (топ по вовлечённости)")
-    sample_recent_days: int = Field(7, ge=0, le=365, description="Для LLM-метрик: плюс все тексты за последние N дней")
-    refresh: bool = Field(False, description="Пересчитать LLM-метрики, игнорируя кэш")
-    provider: str | None = None
-    model: str | None = None
 
 
 class VozdAnalyticsExpertInput(BaseModel):
