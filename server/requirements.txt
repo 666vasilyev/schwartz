@@ -25,6 +25,8 @@ PySocks>=1.7
 pgvector>=0.3
 sentence-transformers>=3.0
 numpy>=1.26
+# Граф участников для аналитики vozd (лидеры, фракции) — app/use_case/vozd/analytics/calc_graph.py
+networkx>=3.0
 # Лемматизация лемм перед сохранением в словарь (см. app/application/services/content/lemmatizer/) —
 # тот же стек, что в референсных ноутбуках: spaCy+germalemma для немецкого, Stanza для английского,
 # spaCy для русского (аналог немецкого — готового примера для ru не было).

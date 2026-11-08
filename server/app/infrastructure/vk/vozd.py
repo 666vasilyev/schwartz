@@ -38,7 +38,7 @@ _last_call_at = 0.0
 USER_FIELDS = (
     "screen_name,sex,bdate,city,country,home_town,status,about,activities,interests,"
     "site,verified,followers_count,counters,occupation,photo_200,last_seen,"
-    "is_closed,can_access_closed"
+    "is_closed,can_access_closed,career,universities,schools"
 )
 
 # Коды VK, означающие «данных нет / закрыто» (не сбой сбора)

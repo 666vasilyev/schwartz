@@ -633,6 +633,12 @@ async def execute_run(run_id: int) -> None:
             run.status = RunStatus.SUCCESS
             run.finished_at = _now()
             await collector.checkpoint(dump_path=path)
+            try:  # снимок численности источников для аналитики (I.2); сбой не влияет на прогон
+                from app.application.services.vozd.members import refresh_members
+
+                await refresh_members(group.id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("vozd_members_snapshot_failed", run_id=run_id, error=str(exc)[:300])
         except RunCancelled:
             logger.info("vozd_run_cancelled", run_id=run_id)
         except asyncio.CancelledError:

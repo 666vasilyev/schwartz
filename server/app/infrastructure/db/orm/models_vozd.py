@@ -205,3 +205,55 @@ class VozdBlacklistWord(Base):
     word: Mapped[str] = mapped_column(String(255), nullable=False)  # как ввёл оператор
     lemma: Mapped[str] = mapped_column(String(255), nullable=False)  # начальная форма (для сопоставления)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class VozdAnalyticsExpert(Base):
+    """Экспертная оценка метрики аналитики для группы (метрики E/N и раздел IV)."""
+
+    __tablename__ = "vozd_analytics_expert"
+    __table_args__ = (UniqueConstraint("group_id", "metric_id", name="uq_vozd_analytics_expert"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("social_groups.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    metric_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    value: Mapped[dict | list | str | int | float | None] = mapped_column(JSON, nullable=True)
+    justification: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expert: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class VozdAnalyticsResult(Base):
+    """Кэш дорогих (LLM) результатов аналитики: ключ — группа + метрика + параметры расчёта."""
+
+    __tablename__ = "vozd_analytics_results"
+    __table_args__ = (UniqueConstraint("group_id", "metric_id", "params_key", name="uq_vozd_analytics_results"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("social_groups.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    metric_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    params_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    value: Mapped[dict | list | str | int | float | None] = mapped_column(JSON, nullable=True)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class VozdMemberSnapshot(Base):
+    """Снимок численности источника (паблика/канала) — для динамики численности группы (I.2)."""
+
+    __tablename__ = "vozd_member_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("social_groups.id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[int] = mapped_column(Integer, ForeignKey("sources.id", ondelete="CASCADE"), nullable=False)
+    members_count: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (Index("ix_vozd_member_snapshots_group_time", "group_id", "captured_at"),)

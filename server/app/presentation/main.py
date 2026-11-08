@@ -27,6 +27,7 @@ from app.presentation.api.routes.vk import router as vk_router
 from app.presentation.api.routes.telegram import router as telegram_router
 from app.presentation.api.routes.llm_settings import router as llm_settings_router
 from app.presentation.api.routes.vozd import router as vozd_router
+from app.presentation.api.routes.vozd_analytics import router as vozd_analytics_router
 from app.presentation.middleware.request_logging import RequestLoggingMiddleware
 from app.utils.log_events import Events
 from app.utils.logger import configure_logging, get_logger
@@ -136,6 +137,7 @@ app.include_router(clusters_router)
 app.include_router(source_categories_router)
 app.include_router(llm_settings_router)
 app.include_router(analytics_router)
+app.include_router(vozd_analytics_router)
 app.include_router(vozd_router)
 
 
